@@ -1,0 +1,12 @@
+{
+  "name": "dyextract",
+  "version": "1.0.0",
+  "description": "抖音视频/图文解析去水印工具 - DyExtract",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

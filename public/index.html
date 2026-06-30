@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DyExtract - 抖音视频/图文解析去水印工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ff6b6b, #ffa500);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .input-box {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .input-group input {
+            flex: 1;
+            padding: 16px 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus {
+            border-color: #ff6b6b;
+        }
+
+        .input-group input::placeholder {
+            color: #64748b;
+        }
+
+        .parse-btn {
+            padding: 16px 40px;
+            background: linear-gradient(90deg, #ff6b6b, #ffa500);
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .parse-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 107, 107, 0.3);
+        }
+
+        .parse-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 25px;
+        }
+
+        .feature {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .feature-text {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        .result-box {
+            margin-top: 30px;
+            display: none;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .result-box.show {
+            display: block;
+        }
+
+        .video-info {
+            margin-bottom: 20px;
+        }
+
+        .info-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        .info-label {
+            color: #94a3b8;
+            flex-shrink: 0;
+            min-width: 80px;
+        }
+
+        .info-value {
+            color: #e2e8f0;
+            word-break: break-all;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            margin-bottom: 10px;
+        }
+
+        .download-btn {
+            display: inline-block;
+            padding: 12px 26px;
+            background: linear-gradient(90deg, #10b981, #059669);
+            border-radius: 10px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: transform 0.2s;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .download-btn.cover-btn {
+            background: linear-gradient(90deg, #6366f1, #4f46e5);
+        }
+
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .preview-item {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .preview-label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .video-preview {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .cover-preview {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cover-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .images-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .image-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .image-preview {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .image-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-download-btn {
+            display: block;
+            padding: 8px 12px;
+            background: linear-gradient(90deg, #6366f1, #4f46e5);
+            border-radius: 8px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+
+        .image-download-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .images-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .download-all-btn {
+            padding: 10px 20px;
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            border-radius: 8px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: transform 0.2s;
+        }
+
+        .download-all-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        @media (max-width: 640px) {
+            .preview-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #ff6b6b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 15px 20px;
+            color: #fca5a5;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error-msg.show {
+            display: block;
+        }
+
+        .how-to {
+            margin-top: 40px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 25px;
+        }
+
+        .how-to h2 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: #e2e8f0;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .step-num {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(90deg, #ff6b6b, #ffa500);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+
+        .step-text {
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #64748b;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DyExtract</h1>
+            <p>抖音视频/图文解析 · 无水印下载</p>
+        </div>
+
+        <div class="input-box">
+            <div class="input-group">
+                <input type="text" id="urlInput" placeholder="粘贴抖音分享链接，如 https://v.douyin.com/xxx" />
+                <button class="parse-btn" id="parseBtn" onclick="parseVideo()">解析</button>
+            </div>
+
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">free</div>
+                    <div class="feature-text">完全免费</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">no-wm</div>
+                    <div class="feature-text">无水印</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">fast</div>
+                    <div class="feature-text">极速处理</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>正在解析视频...</p>
+        </div>
+
+        <div class="error-msg" id="errorMsg"></div>
+
+        <div class="result-box" id="resultBox">
+            <div class="video-info">
+                <div class="info-row">
+                    <div class="info-label">标题：</div>
+                    <div class="info-value" id="videoTitle">标题</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">作者：</div>
+                    <div class="info-value" id="authorName">作者</div>
+                </div>
+                <div class="download-buttons" id="videoDownloadSection">
+                    <a href="#" class="download-btn" id="downloadBtn" download>下载视频</a>
+                    <a href="#" class="download-btn cover-btn" id="downloadCoverBtn" download style="display: none;">下载封面</a>
+                </div>
+            </div>
+            
+            <!-- 视频预览区域 -->
+            <div class="preview-container" id="videoPreviewSection">
+                <div class="preview-item">
+                    <div class="preview-label">视频预览</div>
+                    <div class="video-preview">
+                        <video id="videoPlayer" controls>
+                            <source src="" type="video/mp4">
+                            您的浏览器不支持视频播放
+                        </video>
+                    </div>
+                </div>
+                <div class="preview-item" id="coverSection" style="display: none;">
+                    <div class="preview-label">封面预览</div>
+                    <div class="cover-preview">
+                        <img id="coverImage" class="cover-image" alt="视频封面">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 图片预览区域 -->
+            <div id="imagesSection" style="display: none;">
+                <div class="images-header">
+                    <div class="preview-label" id="imagesCountLabel">图片列表</div>
+                    <button class="download-all-btn" id="downloadAllBtn" onclick="downloadAllImages()">下载全部</button>
+                </div>
+                <div class="images-grid" id="imagesGrid">
+                </div>
+            </div>
+        </div>
+
+        <div class="how-to">
+            <h2>如何使用</h2>
+            <div class="step">
+                <div class="step-num">1</div>
+                <div class="step-text">打开抖音App，找到想要下载的视频，点击分享按钮</div>
+            </div>
+            <div class="step">
+                <div class="step-num">2</div>
+                <div class="step-text">复制视频链接，粘贴到上方输入框中</div>
+            </div>
+            <div class="step">
+                <div class="step-num">3</div>
+                <div class="step-text">点击"解析"按钮，等待解析完成后即可下载无水印视频</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            DyExtract · 仅供学习交流使用，请勿用于商业用途
+        </div>
+    </div>
+
+    <script>
+        const exampleUrl = '0.20 复制打开抖音，看看【GTA VI alarm的作品】# gta # steam游戏  https://v.douyin.com/LhvshcYJWPc/ :0pm q@r.Eh 12/25 daa:/';
+
+        async function parseVideo() {
+            const urlInput = document.getElementById('urlInput');
+            const parseBtn = document.getElementById('parseBtn');
+            const loading = document.getElementById('loading');
+            const errorMsg = document.getElementById('errorMsg');
+            const resultBox = document.getElementById('resultBox');
+
+            let url = urlInput.value.trim();
+
+            // 如果输入为空，使用示例链接
+            if (!url) {
+                url = extractUrl(exampleUrl);
+            }
+
+            // 从输入中提取真实URL
+            if (!url.startsWith('http')) {
+                url = extractUrl(url);
+            }
+
+            if (!url) {
+                showError('请输入有效的抖音链接');
+                return;
+            }
+
+            // 隐藏之前的结果和错误
+            errorMsg.classList.remove('show');
+            resultBox.classList.remove('show');
+            loading.classList.add('show');
+            parseBtn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/douyin?url=${encodeURIComponent(url)}`);
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || '解析服务暂不可用');
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const videoPlayer = document.getElementById('videoPlayer');
+                
+                // 清理之前的视频源
+                if (videoPlayer.src) {
+                    videoPlayer.pause();
+                    if (videoPlayer.src.startsWith('blob:')) {
+                        URL.revokeObjectURL(videoPlayer.src);
+                    }
+                    videoPlayer.removeAttribute('src');
+                    videoPlayer.load();
+                }
+                
+                document.getElementById('videoTitle').textContent = data.title || '抖音';
+                document.getElementById('authorName').textContent = data.author || '未知作者';
+                
+                const videoPreviewSection = document.getElementById('videoPreviewSection');
+                const imagesSection = document.getElementById('imagesSection');
+                const videoDownloadSection = document.getElementById('videoDownloadSection');
+                
+                if (data.type === 'image' && data.images && data.images.length > 0) {
+                    // 图文类型：显示图片列表
+                    videoPreviewSection.style.display = 'none';
+                    videoDownloadSection.style.display = 'none';
+                    imagesSection.style.display = 'block';
+                    
+                    document.getElementById('imagesCountLabel').textContent = `图片列表（共 ${data.images.length} 张）`;
+                    
+                    const imagesGrid = document.getElementById('imagesGrid');
+                    imagesGrid.innerHTML = '';
+                    
+                    data.images.forEach((img, index) => {
+                        const proxyUrl = `/api/cover?url=${encodeURIComponent(img.url)}`;
+                        
+                        const card = document.createElement('div');
+                        card.className = 'image-card';
+                        card.innerHTML = `
+                            <div class="image-preview">
+                                <img src="${proxyUrl}" alt="图片${index + 1}" loading="lazy">
+                            </div>
+                            <a href="${proxyUrl}&download=1" class="image-download-btn" download="douyin_image_${index + 1}.jpg">下载第${index + 1}张</a>
+                        `;
+                        imagesGrid.appendChild(card);
+                    });
+                    
+                    window._currentImages = data.images;
+                    
+                } else {
+                    // 视频类型：显示视频播放器
+                    videoPreviewSection.style.display = 'grid';
+                    videoDownloadSection.style.display = 'flex';
+                    imagesSection.style.display = 'none';
+                    
+                    // 清理之前的视频
+                    const oldLoading = document.getElementById('videoLoading');
+                    if (oldLoading) oldLoading.remove();
+                    if (videoPlayer.src) {
+                        videoPlayer.pause();
+                        videoPlayer.removeAttribute('src');
+                        videoPlayer.load();
+                    }
+                    
+                    if (data.play_url && data.video_key) {
+                        // 显示加载状态
+                        const loadingText = document.createElement('div');
+                        loadingText.id = 'videoLoading';
+                        loadingText.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:white;font-size:16px;text-align:center;padding:20px;background:rgba(0,0,0,0.7);border-radius:8px;';
+                        loadingText.innerHTML = '正在加载视频...<br><span style="font-size:12px;color:#aaa;margin-top:10px;display:inline-block">如果视频较大，请稍等片刻</span>';
+                        videoPlayer.parentElement.style.position = 'relative';
+                        videoPlayer.parentElement.appendChild(loadingText);
+                        
+                        const onCanPlay = () => {
+                            const loadingEl = document.getElementById('videoLoading');
+                            if (loadingEl) loadingEl.remove();
+                            videoPlayer.removeEventListener('canplay', onCanPlay);
+                            videoPlayer.removeEventListener('error', onError);
+                            console.log('视频已准备好播放，时长:', videoPlayer.duration, '秒');
+                        };
+                        
+                        const onError = (e) => {
+                            const loadingEl = document.getElementById('videoLoading');
+                            if (loadingEl) loadingEl.textContent = '视频加载失败，请尝试下载';
+                            videoPlayer.removeEventListener('canplay', onCanPlay);
+                            videoPlayer.removeEventListener('error', onError);
+                            console.error('视频加载错误:', videoPlayer.error);
+                        };
+                        
+                        videoPlayer.addEventListener('canplay', onCanPlay);
+                        videoPlayer.addEventListener('error', onError);
+                        
+                        const proxyUrl = `/api/video?id=${data.video_key}`;
+                        videoPlayer.src = proxyUrl;
+                        videoPlayer.load();
+                        console.log('开始加载视频:', proxyUrl);
+                    }
+                    
+                    const downloadBtn = document.getElementById('downloadBtn');
+                    if (data.play_url && data.video_key) {
+                        downloadBtn.href = `/api/video?id=${data.video_key}&download=1`;
+                        downloadBtn.download = `douyin_${Date.now()}.mp4`;
+                        downloadBtn.style.display = 'inline-block';
+                        downloadBtn.textContent = '下载视频';
+                    } else {
+                        downloadBtn.style.display = 'none';
+                    }
+                    
+                    // 处理视频封面
+                    const coverSection = document.getElementById('coverSection');
+                    const coverImage = document.getElementById('coverImage');
+                    const downloadCoverBtn = document.getElementById('downloadCoverBtn');
+                    
+                    if (data.cover) {
+                        const coverProxyUrl = `/api/cover?url=${encodeURIComponent(data.cover)}`;
+                        coverImage.src = coverProxyUrl;
+                        coverSection.style.display = 'block';
+                        
+                        downloadCoverBtn.style.display = 'inline-block';
+                        downloadCoverBtn.href = `${coverProxyUrl}&download=1`;
+                        downloadCoverBtn.download = `douyin_cover_${Date.now()}.jpg`;
+                    } else {
+                        coverSection.style.display = 'none';
+                        downloadCoverBtn.style.display = 'none';
+                    }
+                }
+
+                resultBox.classList.add('show');
+
+            } catch (error) {
+                showError(error.message || '解析失败，请检查链接是否正确');
+            } finally {
+                loading.classList.remove('show');
+                parseBtn.disabled = false;
+            }
+        }
+
+        function extractUrl(text) {
+            const match = text.match(/https?:\/\/v\.douyin\.com\/[^\s]+/);
+            return match ? match[0] : text.trim();
+        }
+
+        function formatNumber(num) {
+            if (num >= 100000000) {
+                return (num / 100000000).toFixed(1) + '亿';
+            }
+            if (num >= 10000) {
+                return (num / 10000).toFixed(1) + '万';
+            }
+            return num.toString();
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.classList.add('show');
+        }
+
+        // 回车键触发解析
+        document.getElementById('urlInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                parseVideo();
+            }
+        });
+    </script>
+</body>
+</html>
