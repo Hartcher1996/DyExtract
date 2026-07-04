@@ -579,17 +579,48 @@
     <script>
         const exampleUrl = '0.20 复制打开抖音，看看【GTA VI alarm的作品】# gta # steam游戏  https://v.douyin.com/LhvshcYJWPc/ :0pm q@r.Eh 12/25 daa:/';
 
-        async function pasteFromClipboard() {
-            try {
-                const text = await navigator.clipboard.readText();
-                const urlInput = document.getElementById('urlInput');
-                urlInput.value = text;
-                urlInput.focus();
-            } catch (err) {
-                const urlInput = document.getElementById('urlInput');
-                urlInput.focus();
-                document.execCommand('paste');
+        function pasteFromClipboard() {
+            const urlInput = document.getElementById('urlInput');
+            const pasteBtn = document.getElementById('pasteBtn');
+            const originalText = pasteBtn.textContent;
+
+            console.log('[粘贴] 开始, clipboard存在:', !!navigator.clipboard, '安全上下文:', window.isSecureContext);
+
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(text => {
+                    console.log('[粘贴] API成功, 内容长度:', text.length);
+                    if (text) {
+                        urlInput.value = text;
+                        urlInput.focus();
+                        pasteBtn.textContent = '已粘贴';
+                        pasteBtn.style.color = '#4ade80';
+                        setTimeout(() => {
+                            pasteBtn.textContent = originalText;
+                            pasteBtn.style.color = '';
+                        }, 1500);
+                    } else {
+                        console.log('[粘贴] 剪贴板为空');
+                        showPasteHint(urlInput, pasteBtn, originalText, '剪贴板为空');
+                    }
+                }).catch(err => {
+                    console.log('[粘贴] API失败:', err.name, err.message);
+                    showPasteHint(urlInput, pasteBtn, originalText, '请按 Ctrl+V');
+                });
+            } else {
+                console.log('[粘贴] 不支持clipboard API');
+                showPasteHint(urlInput, pasteBtn, originalText, '请按 Ctrl+V');
             }
+        }
+
+        function showPasteHint(input, btn, originalText, hint) {
+            input.focus();
+            input.select();
+            btn.textContent = hint;
+            btn.style.color = '#ffa500';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.color = '';
+            }, 2000);
         }
 
         async function parseVideo() {
@@ -797,6 +828,9 @@
                 parseVideo();
             }
         });
+
+        // 自动聚焦输入框
+        document.getElementById('urlInput').focus();
     </script>
 </body>
 </html>
