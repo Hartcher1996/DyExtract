@@ -355,51 +355,17 @@ async function handleParse(request) {
     }
     if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
-    console.log('[handleParse] URL:', rawUrl);
+    console.log('[handleParse] start, URL:', rawUrl);
     const t0 = Date.now();
 
+    // 直接调用 buildParseResponse，与 /api/debug Step 4 完全一致
     try {
         const result = await buildParseResponse(rawUrl);
-        const elapsed = Date.now() - t0;
-        console.log('[handleParse] 解析成功, 耗时:', elapsed, 'ms');
-
+        console.log('[handleParse] success, ms:', Date.now() - t0);
         const payload = result.payload || result;
-        console.log('[handleParse] payload type:', typeof payload, 'keys:', payload ? Object.keys(payload) : 'null');
-
-        // 安全序列化：防止特殊字符导致 JSON.stringify 失败
-        let jsonStr;
-        try {
-            jsonStr = JSON.stringify(payload);
-        } catch (e1) {
-            console.error('[handleParse] JSON.stringify 失败:', e1.message);
-            // 降级：手动构建
-            jsonStr = JSON.stringify({
-                success: true,
-                type: payload.type || 'video',
-                title: String(payload.title || '抖音视频'),
-                author: String(payload.author || '未知作者'),
-                play_url: String(payload.play_url || ''),
-                cover: String(payload.cover || ''),
-                item_id: String(payload.item_id || ''),
-                platform: 'douyin',
-                source: String(payload.source || 'self'),
-                _serialize_fallback: true
-            });
-        }
-
-        console.log('[handleParse] jsonStr length:', jsonStr.length);
-
-        return new Response(jsonStr, {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-                'Access-Control-Allow-Headers': 'Content-Type, Range'
-            }
-        });
+        return jsonResponse(payload);
     } catch (e) {
-        console.error('[解析错误] 耗时:', Date.now() - t0, 'ms,', e && e.message, e && e.stack);
+        console.log('[handleParse] error, ms:', Date.now() - t0, 'err:', e && e.message);
         return jsonResponse({ error: e.message || '解析失败' }, 500);
     }
 }
@@ -557,9 +523,11 @@ async function handleCover(request) {
 export async function onRequest(context) {
     const request = context.request;
     const method = request.method;
-    const { path } = parseRequest(request);
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const search = url.search;
 
-    console.log(`[EdgeOne] ${method} ${path}`);
+    console.log(`[EdgeOne] onRequest start: ${method} ${path}${search}`);
 
     // CORS 预检
     if (method === 'OPTIONS') {
@@ -574,19 +542,39 @@ export async function onRequest(context) {
     }
 
     try {
-        // 路由分发（onRequest 模式下 EdgeOne 不剥离前缀，传入的是完整路径 /api/xxx）
-        if (path === '/api/health') return await handleHealth(request);
-        if (path === '/api/test') return await handleTest(request);
-        if (path === '/api/debug') return await handleDebug(request);
-        if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
-            return await handleParse(request);
+        // 路由分发
+        console.log('[EdgeOne] routing:', path);
+        if (path === '/api/health') {
+            console.log('[EdgeOne] -> handleHealth');
+            return await handleHealth(request);
         }
-        if (path === '/api/video') return await handleVideo(request);
-        if (path === '/api/cover') return await handleCover(request);
+        if (path === '/api/test') {
+            console.log('[EdgeOne] -> handleTest');
+            return await handleTest(request);
+        }
+        if (path === '/api/debug') {
+            console.log('[EdgeOne] -> handleDebug');
+            return await handleDebug(request);
+        }
+        if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
+            console.log('[EdgeOne] -> handleParse');
+            const ret = await handleParse(request);
+            console.log('[EdgeOne] handleParse returned:', ret.status);
+            return ret;
+        }
+        if (path === '/api/video') {
+            console.log('[EdgeOne] -> handleVideo');
+            return await handleVideo(request);
+        }
+        if (path === '/api/cover') {
+            console.log('[EdgeOne] -> handleCover');
+            return await handleCover(request);
+        }
 
+        console.log('[EdgeOne] 404 no route:', path);
         return jsonResponse({ error: 'API 路由不存在: ' + method + ' ' + path }, 404);
     } catch (e) {
-        console.error('[onRequest 未捕获异常]', e && e.message, e && e.stack);
+        console.error('[EdgeOne] onRequest ERROR:', e && e.message, e && e.stack);
         return jsonResponse({ error: '服务器内部错误: ' + (e.message || e) }, 500);
     }
 }
