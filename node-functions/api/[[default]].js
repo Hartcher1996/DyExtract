@@ -358,16 +358,8 @@ async function handleParse(request) {
     console.log('[handleParse] URL:', rawUrl);
     const t0 = Date.now();
 
-    // 全局超时保护：EdgeOne 函数 30s 限制，25s 超时留 5s 余量返回响应
-    const GLOBAL_TIMEOUT = 25000;
-
     try {
-        const result = await Promise.race([
-            buildParseResponse(rawUrl),
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('解析全局超时(' + GLOBAL_TIMEOUT + 'ms)')), GLOBAL_TIMEOUT)
-            )
-        ]);
+        const result = await buildParseResponse(rawUrl);
         console.log('[handleParse] 解析成功, 耗时:', Date.now() - t0, 'ms');
         return jsonResponse(result.payload || result);
     } catch (e) {
