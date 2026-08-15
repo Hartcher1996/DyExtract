@@ -108,7 +108,10 @@ async function handleDebug(request) {
                 status: r.status,
                 timeMs: Date.now() - t0,
                 itemId: itemId || '(none)',
-                bodyLen: (r.body || '').length
+                bodyLen: (r.body || '').length,
+                hasRouterData: (r.body || '').includes('_ROUTER_DATA'),
+                hasRenderData: (r.body || '').includes('RENDER_DATA'),
+                titleMatch: ((r.body || '').match(/<title>([^<]{0,80})<\/title>/i) || [])[1] || ''
             });
         } catch (e) {
             results.steps.push({ step: '2-fetch-short-url', error: e.message });
@@ -123,28 +126,102 @@ async function handleDebug(request) {
     // Step 3: fetch iesdouyin share page
     const shareUrl = `https://www.iesdouyin.com/share/video/${itemId}`;
     results.steps.push({ step: '3-share-url', url: shareUrl });
+    let workingCookie = '';
     try {
         const t0 = Date.now();
         const r = await _core.nativeRequest(shareUrl, { timeoutMs: 10000 });
-        const cookie = _core.getCookiesFromHeaders(r.headers);
+        workingCookie = _core.getCookiesFromHeaders(r.headers);
         const meta = _core.parseMetaInfo(r.body);
         const embedded = _core.parseFromEmbeddedData(r.body);
+        const body = r.body || '';
         results.steps.push({
             step: '3-share-url',
             status: r.status,
             timeMs: Date.now() - t0,
-            bodyLen: (r.body || '').length,
-            hasCookie: !!cookie,
-            cookieLen: cookie.length,
+            bodyLen: body.length,
+            hasCookie: !!workingCookie,
+            cookieLen: workingCookie.length,
+            cookiePreview: workingCookie.substring(0, 80),
             metaTitle: meta.title ? meta.title.substring(0, 50) : '',
             metaImage: meta.image ? 'yes' : 'no',
             metaVideoUrl: meta.videoUrl ? 'yes' : 'no',
             embeddedPlayUrl: embedded.playUrl ? 'yes' : 'no',
             embeddedImages: embedded.images ? embedded.images.length : 0,
-            embeddedTitle: embedded.title ? embedded.title.substring(0, 50) : ''
+            embeddedTitle: embedded.title ? embedded.title.substring(0, 50) : '',
+            hasRouterData: body.includes('_ROUTER_DATA'),
+            hasRenderData: body.includes('RENDER_DATA'),
+            hasPlayAddr: body.includes('play_addr'),
+            hasVideoId: body.includes('video_id'),
+            titleMatch: (body.match(/<title>([^<]{0,80})<\/title>/i) || [])[1] || '',
+            bodyPreview: body.substring(0, 500)
         });
     } catch (e) {
         results.steps.push({ step: '3-share-url', error: e.message });
+    }
+
+    // Step 3b: 测试抖音新版详情页（www.douyin.com/video/）
+    const detailUrl = `https://www.douyin.com/video/${itemId}`;
+    results.steps.push({ step: '3b-douyin-detail', url: detailUrl });
+    try {
+        const t0 = Date.now();
+        const r = await _core.nativeRequest(detailUrl, {
+            headers: {
+                'Cookie': workingCookie,
+                'Referer': 'https://www.douyin.com/'
+            },
+            timeoutMs: 10000
+        });
+        const body = r.body || '';
+        const meta = _core.parseMetaInfo(body);
+        const embedded = _core.parseFromEmbeddedData(body);
+        results.steps.push({
+            step: '3b-douyin-detail',
+            status: r.status,
+            timeMs: Date.now() - t0,
+            bodyLen: body.length,
+            metaTitle: meta.title ? meta.title.substring(0, 50) : '',
+            metaImage: meta.image ? 'yes' : 'no',
+            metaVideoUrl: meta.videoUrl ? 'yes' : 'no',
+            embeddedPlayUrl: embedded.playUrl ? 'yes' : 'no',
+            hasRouterData: body.includes('_ROUTER_DATA'),
+            hasRenderData: body.includes('RENDER_DATA'),
+            hasPlayAddr: body.includes('play_addr'),
+            hasPlaywm: body.includes('playwm'),
+            titleMatch: (body.match(/<title>([^<]{0,80})<\/title>/i) || [])[1] || '',
+            bodyPreview: body.substring(0, 500)
+        });
+    } catch (e) {
+        results.steps.push({ step: '3b-douyin-detail', error: e.message });
+    }
+
+    // Step 3c: 测试 API 端点
+    const apiUrl = `https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=${itemId}`;
+    results.steps.push({ step: '3c-api-test', url: apiUrl });
+    try {
+        const t0 = Date.now();
+        const r = await _core.nativeRequest(apiUrl, {
+            headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Cookie': workingCookie,
+                'Referer': shareUrl,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            timeoutMs: 8000
+        });
+        const body = r.body || '';
+        let parsed = null;
+        try { parsed = JSON.parse(body); } catch (e) {}
+        results.steps.push({
+            step: '3c-api-test',
+            status: r.status,
+            timeMs: Date.now() - t0,
+            bodyLen: body.length,
+            bodyPreview: body.substring(0, 300),
+            isJson: !!parsed,
+            hasItem: parsed ? !!(parsed.item_list?.[0] || parsed.aweme_detail) : false
+        });
+    } catch (e) {
+        results.steps.push({ step: '3c-api-test', error: e.message });
     }
 
     // Step 4: 完整 buildParseResponse 测试
@@ -163,8 +240,7 @@ async function handleDebug(request) {
         results.steps.push({
             step: '4-build-parse-response',
             success: false,
-            error: e.message,
-            timeMs: Date.now() - 0
+            error: e.message
         });
     }
 
