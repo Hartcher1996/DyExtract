@@ -257,17 +257,20 @@ async function handleTest(request) {
 
         const r = await new Promise((resolve, reject) => {
             const t0 = Date.now();
+            const testAgent = new client.Agent({ keepAlive: false });
             const req = client.request({
                 hostname: u.hostname,
                 port: u.port || (u.protocol === 'https:' ? 443 : 80),
                 path: u.pathname + u.search,
                 method: 'GET',
                 rejectUnauthorized: false,
-                headers: { 'User-Agent': MOBILE_UA }
+                agent: testAgent,
+                headers: { 'User-Agent': MOBILE_UA, 'Connection': 'close' }
             }, (res) => {
                 const chunks = [];
                 res.on('data', c => chunks.push(c));
                 res.on('end', () => {
+                    try { testAgent.destroy(); } catch (e) {}
                     resolve({
                         status: res.statusCode,
                         timeMs: Date.now() - t0,
@@ -275,8 +278,8 @@ async function handleTest(request) {
                     });
                 });
             });
-            req.on('error', reject);
-            req.setTimeout(8000, () => { req.destroy(); reject(new Error('Node http 超时(8s)')); });
+            req.on('error', (e) => { try { testAgent.destroy(); } catch (_) {} reject(e); });
+            req.setTimeout(8000, () => { try { req.destroy(); } catch (_) {} try { testAgent.destroy(); } catch (_) {} reject(new Error('Node http 超时(8s)')); });
             req.end();
         });
 
@@ -388,18 +391,21 @@ async function handleVideo(request) {
             };
             if (request.headers.get('range')) reqHeaders['Range'] = request.headers.get('range');
 
+            const videoAgent = new client.Agent({ keepAlive: false });
             const req = client.request({
                 hostname: u.hostname,
                 port: u.port || (u.protocol === 'https:' ? 443 : 80),
                 path: u.pathname + u.search,
                 method: 'GET',
                 rejectUnauthorized: false,
-                headers: reqHeaders
+                agent: videoAgent,
+                headers: { ...reqHeaders, 'Connection': 'close' }
             }, (pres) => {
                 if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
+                    try { videoAgent.destroy(); } catch (e) {}
                     proxyVideo(loc, redirectCount + 1).then(resolve).catch(reject);
                     return;
                 }
@@ -430,22 +436,25 @@ async function handleVideo(request) {
                             if (closed) return;
                             closed = true;
                             try { ctrl.close(); } catch (e) {}
+                            try { videoAgent.destroy(); } catch (e) {}
                         });
                         pres.on('error', (err) => {
                             if (closed) return;
                             closed = true;
                             try { ctrl.error(err); } catch (e) {}
+                            try { videoAgent.destroy(); } catch (e) {}
                         });
                     },
                     cancel() {
                         closed = true;
                         try { pres.destroy(); } catch (e) {}
+                        try { videoAgent.destroy(); } catch (e) {}
                     }
                 });
                 resolve(new Response(stream, { status: pres.statusCode, headers }));
             });
-            req.on('error', reject);
-            req.setTimeout(28000, () => { req.destroy(); reject(new Error('视频请求超时')); });
+            req.on('error', (e) => { try { videoAgent.destroy(); } catch (_) {} reject(e); });
+            req.setTimeout(28000, () => { try { req.destroy(); } catch (_) {} try { videoAgent.destroy(); } catch (_) {} reject(new Error('视频请求超时')); });
             req.end();
         });
     }
@@ -475,23 +484,27 @@ async function handleCover(request) {
             const u = new URL(targetUrl);
             const client = u.protocol === 'https:' ? https : http;
 
+            const coverAgent = new client.Agent({ keepAlive: false });
             const req = client.request({
                 hostname: u.hostname,
                 port: u.port || (u.protocol === 'https:' ? 443 : 80),
                 path: u.pathname + u.search,
                 method: 'GET',
                 rejectUnauthorized: false,
+                agent: coverAgent,
                 headers: {
                     'User-Agent': MOBILE_UA,
                     'Referer': 'https://www.douyin.com/',
                     'Accept': 'image/*,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'zh-CN,zh;q=0.9'
+                    'Accept-Language': 'zh-CN,zh;q=0.9',
+                    'Connection': 'close'
                 }
             }, (pres) => {
                 if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
+                    try { coverAgent.destroy(); } catch (e) {}
                     proxyCover(loc, redirectCount + 1).then(resolve).catch(reject);
                     return;
                 }
@@ -520,22 +533,25 @@ async function handleCover(request) {
                             if (closed) return;
                             closed = true;
                             try { ctrl.close(); } catch (e) {}
+                            try { coverAgent.destroy(); } catch (e) {}
                         });
                         pres.on('error', (err) => {
                             if (closed) return;
                             closed = true;
                             try { ctrl.error(err); } catch (e) {}
+                            try { coverAgent.destroy(); } catch (e) {}
                         });
                     },
                     cancel() {
                         closed = true;
                         try { pres.destroy(); } catch (e) {}
+                        try { coverAgent.destroy(); } catch (e) {}
                     }
                 });
                 resolve(new Response(stream, { status: pres.statusCode, headers }));
             });
-            req.on('error', reject);
-            req.setTimeout(15000, () => { req.destroy(); reject(new Error('封面请求超时')); });
+            req.on('error', (e) => { try { coverAgent.destroy(); } catch (_) {} reject(e); });
+            req.setTimeout(15000, () => { try { req.destroy(); } catch (_) {} try { coverAgent.destroy(); } catch (_) {} reject(new Error('封面请求超时')); });
             req.end();
         });
     }
