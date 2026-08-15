@@ -105,7 +105,7 @@ async function handleParse(request) {
 // /api/video?url=...  (视频代理，直接 fetch 流式透传)
 async function handleVideo(request) {
     const { query } = parseRequest(request);
-    const videoUrl = query.get('url');
+    let videoUrl = query.get('url');
     const id = query.get('id');
     const download = query.get('download');
 
