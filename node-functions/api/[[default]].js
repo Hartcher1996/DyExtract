@@ -19,9 +19,14 @@ const _core = (core && core.default && !core.buildParseResponse) ? core.default 
 const {
     MOBILE_UA,
     setKVStore,
+    setUseNodeHttp,
     getCachedVideo,
     buildParseResponse
 } = _core || {};
+
+// EdgeOne Cloud Functions 的全局 fetch() 无法发起外网请求，强制使用 Node.js 原生 http/https
+if (setUseNodeHttp) setUseNodeHttp(true);
+console.log('[EdgeOne] 已强制使用 Node.js 原生 http 模块');
 
 // KV 绑定（可选，不用 top-level await）
 const _require = createRequire(import.meta.url);
@@ -70,40 +75,65 @@ async function handleHealth(request) {
         ts: Date.now(),
         hasFetch: typeof fetch === 'function',
         hasAbortController: typeof AbortController !== 'undefined',
+        useNodeHttp: true,
         nodeVersion: process.version,
         coreOK: typeof buildParseResponse === 'function',
         coreKeys: _core ? Object.keys(_core) : null
     });
 }
 
-// /api/test — 诊断端点：逐步测试 fetch 网络连通性
+// /api/test — 诊断端点：测试 Node.js 原生 http 模块的网络连通性
 async function handleTest(request) {
     const { query } = parseRequest(request);
     const testUrl = query.get('url') || 'https://httpbin.org/get';
-    const results = { steps: [], ts: Date.now() };
+    const results = { steps: [], ts: Date.now(), useNodeHttp: true };
 
-    // Step 1: 基础 fetch 测试
-    results.steps.push({ step: '1-basic-fetch', url: testUrl });
+    // Step 1: 直接用 Node.js 原生 http 测试（带 8s 超时）
+    results.steps.push({ step: '1-node-http', url: testUrl });
     try {
-        const t0 = Date.now();
-        const resp = await fetch(testUrl, {
-            method: 'GET',
-            headers: { 'User-Agent': MOBILE_UA },
-            redirect: 'follow'
+        const _require = createRequire(import.meta.url);
+        const https = _require('https');
+        const http = _require('http');
+        const u = new URL(testUrl);
+        const client = u.protocol === 'https:' ? https : http;
+
+        const r = await new Promise((resolve, reject) => {
+            const t0 = Date.now();
+            const req = client.request({
+                hostname: u.hostname,
+                port: u.port || (u.protocol === 'https:' ? 443 : 80),
+                path: u.pathname + u.search,
+                method: 'GET',
+                rejectUnauthorized: false,
+                headers: { 'User-Agent': MOBILE_UA }
+            }, (res) => {
+                const chunks = [];
+                res.on('data', c => chunks.push(c));
+                res.on('end', () => {
+                    resolve({
+                        status: res.statusCode,
+                        timeMs: Date.now() - t0,
+                        body: Buffer.concat(chunks).toString('utf-8')
+                    });
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(8000, () => { req.destroy(); reject(new Error('Node http 超时(8s)')); });
+            req.end();
         });
-        const text = await resp.text();
+
         results.steps.push({
-            step: '1-basic-fetch',
-            status: resp.status,
-            timeMs: Date.now() - t0,
-            bodyLen: text.length,
-            bodyPreview: text.substring(0, 200)
+            step: '1-node-http',
+            status: r.status,
+            timeMs: r.timeMs,
+            bodyLen: r.body.length,
+            bodyPreview: r.body.substring(0, 200)
         });
     } catch (e) {
-        results.steps.push({ step: '1-basic-fetch', error: e.message, name: e.name });
+        results.steps.push({ step: '1-node-http', error: e.message });
     }
 
-    // Step 2: nativeRequest 测试（如果 core 可用）
+    // Step 2: nativeRequest 测试（已强制走 Node http 路径）
     if (_core && _core.nativeRequest) {
         results.steps.push({ step: '2-native-request', url: testUrl });
         try {
@@ -181,7 +211,7 @@ async function handleParse(request) {
     }
 }
 
-// /api/video?url=...  (视频代理，直接 fetch 流式透传)
+// /api/video?url=...  (视频代理，Node.js 原生 http 流式透传)
 async function handleVideo(request) {
     const { query } = parseRequest(request);
     let videoUrl = query.get('url');
@@ -195,69 +225,135 @@ async function handleVideo(request) {
     }
     if (!videoUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
-    try {
-        const fwdHeaders = {
-            'User-Agent': MOBILE_UA,
-            'Referer': 'https://www.douyin.com/',
-            'Accept': '*/*',
-            'Accept-Language': 'zh-CN,zh;q=0.9'
-        };
-        if (request.headers.get('range')) fwdHeaders['Range'] = request.headers.get('range');
+    const _require = createRequire(import.meta.url);
+    const https = _require('https');
+    const http = _require('http');
 
-        const resp = await fetch(videoUrl, {
-            method: 'GET',
-            headers: fwdHeaders,
-            redirect: 'follow'
+    function proxyVideo(targetUrl, redirectCount) {
+        return new Promise((resolve, reject) => {
+            if (redirectCount > 5) return reject(new Error('重定向次数过多'));
+            const u = new URL(targetUrl);
+            const client = u.protocol === 'https:' ? https : http;
+            const reqHeaders = {
+                'User-Agent': MOBILE_UA,
+                'Referer': 'https://www.douyin.com/',
+                'Accept': '*/*',
+                'Accept-Language': 'zh-CN,zh;q=0.9'
+            };
+            if (request.headers.get('range')) reqHeaders['Range'] = request.headers.get('range');
+
+            const req = client.request({
+                hostname: u.hostname,
+                port: u.port || (u.protocol === 'https:' ? 443 : 80),
+                path: u.pathname + u.search,
+                method: 'GET',
+                rejectUnauthorized: false,
+                headers: reqHeaders
+            }, (pres) => {
+                if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
+                    let loc = pres.headers.location;
+                    if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
+                    pres.resume();
+                    return resolve(proxyVideo(loc, redirectCount + 1));
+                }
+                if (pres.statusCode >= 400) {
+                    pres.resume();
+                    return resolve(jsonResponse({ error: `视频请求失败: ${pres.statusCode}` }, pres.statusCode));
+                }
+
+                const chunks = [];
+                pres.on('data', c => chunks.push(c));
+                pres.on('end', () => {
+                    const body = Buffer.concat(chunks);
+                    const headers = {
+                        'Access-Control-Allow-Origin': '*',
+                        'Content-Type': pres.headers['content-type'] || 'video/mp4',
+                        'Accept-Ranges': 'bytes'
+                    };
+                    if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
+                    if (pres.headers['content-range']) headers['Content-Range'] = pres.headers['content-range'];
+                    if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_video.mp4"';
+                    resolve(new Response(body, { status: pres.statusCode, headers }));
+                });
+                pres.on('error', reject);
+            });
+            req.on('error', reject);
+            req.setTimeout(28000, () => { req.destroy(); reject(new Error('视频请求超时')); });
+            req.end();
         });
+    }
 
-        const headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': resp.headers.get('content-type') || 'video/mp4',
-            'Accept-Ranges': 'bytes'
-        };
-        const cl = resp.headers.get('content-length');
-        if (cl) headers['Content-Length'] = cl;
-        const cr = resp.headers.get('content-range');
-        if (cr) headers['Content-Range'] = cr;
-        if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_video.mp4"';
-
-        return new Response(resp.body, { status: resp.status, headers });
+    try {
+        return await proxyVideo(videoUrl, 0);
     } catch (e) {
         console.error('[视频代理错误]', e && e.message);
         return jsonResponse({ error: '视频代理失败: ' + e.message }, 500);
     }
 }
 
-// /api/cover?url=...  (封面代理)
+// /api/cover?url=...  (封面代理，Node.js 原生 http)
 async function handleCover(request) {
     const { query } = parseRequest(request);
     const target = query.get('url');
     const download = query.get('download');
     if (!target) return jsonResponse({ error: '缺少URL参数' }, 400);
 
-    try {
-        const fwdHeaders = {
-            'User-Agent': MOBILE_UA,
-            'Referer': 'https://www.douyin.com/',
-            'Accept': 'image/*,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9'
-        };
+    const _require = createRequire(import.meta.url);
+    const https = _require('https');
+    const http = _require('http');
 
-        const resp = await fetch(target, {
-            method: 'GET',
-            headers: fwdHeaders,
-            redirect: 'follow'
+    function proxyCover(targetUrl, redirectCount) {
+        return new Promise((resolve, reject) => {
+            if (redirectCount > 5) return reject(new Error('重定向次数过多'));
+            const u = new URL(targetUrl);
+            const client = u.protocol === 'https:' ? https : http;
+
+            const req = client.request({
+                hostname: u.hostname,
+                port: u.port || (u.protocol === 'https:' ? 443 : 80),
+                path: u.pathname + u.search,
+                method: 'GET',
+                rejectUnauthorized: false,
+                headers: {
+                    'User-Agent': MOBILE_UA,
+                    'Referer': 'https://www.douyin.com/',
+                    'Accept': 'image/*,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'zh-CN,zh;q=0.9'
+                }
+            }, (pres) => {
+                if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
+                    let loc = pres.headers.location;
+                    if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
+                    pres.resume();
+                    return resolve(proxyCover(loc, redirectCount + 1));
+                }
+                if (pres.statusCode >= 400) {
+                    pres.resume();
+                    return resolve(jsonResponse({ error: `封面请求失败: ${pres.statusCode}` }, pres.statusCode));
+                }
+
+                const chunks = [];
+                pres.on('data', c => chunks.push(c));
+                pres.on('end', () => {
+                    const body = Buffer.concat(chunks);
+                    const headers = {
+                        'Access-Control-Allow-Origin': '*',
+                        'Content-Type': pres.headers['content-type'] || 'image/jpeg'
+                    };
+                    if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
+                    if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_cover.jpg"';
+                    resolve(new Response(body, { status: pres.statusCode, headers }));
+                });
+                pres.on('error', reject);
+            });
+            req.on('error', reject);
+            req.setTimeout(15000, () => { req.destroy(); reject(new Error('封面请求超时')); });
+            req.end();
         });
+    }
 
-        const headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': resp.headers.get('content-type') || 'image/jpeg'
-        };
-        const cl = resp.headers.get('content-length');
-        if (cl) headers['Content-Length'] = cl;
-        if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_cover.jpg"';
-
-        return new Response(resp.body, { status: resp.status, headers });
+    try {
+        return await proxyCover(target, 0);
     } catch (e) {
         return jsonResponse({ error: '封面代理失败: ' + e.message }, 500);
     }
