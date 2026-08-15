@@ -1,21 +1,20 @@
 // node-functions/api/[[default]].js — EdgeOne Pages Node Functions 入口
 //
-// EdgeOne Pages Node Functions 规范：
-//   1. 目录：/node-functions/api/[[default]].js → 匹配 /api/* 所有子路径
-//   2. 框架模式：import express + export default app（不调用 app.listen）
-//   3. Runtime：Node.js v20.x，有原生 fetch，支持完整 npm 生态
-//   4. esbuild 打包时会内联 ESM import 的模块
+// 模式：EdgeOne 原生 onRequest handler（不用 Express，避免 esbuild 兼容问题）
+// Runtime: Node.js v20.x，有原生 fetch
+// 目录匹配：node-functions/api/[[default]].js → /api/*
+//
+// 可用的 context:
+//   context.request - Web Standard Request
+//   context.params   - 路由参数（这里用不到，[[default]] 把所有子路径兜住了）
+//   context.env      - 环境变量
+//   context.waitUntil - 延长请求生命周期
 // ————————————————————————————————————————————————————————————————————
 
-import express from 'express';
-import http from 'http';
-import https from 'https';
-import { createRequire } from 'module';
 import core from '../../lib/core.js';
+import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-
-// 兼容 ESM import CJS 时可能的 default 嵌套
+// 兼容 esbuild 打包后的 default 嵌套
 const _core = (core && core.default && !core.buildParseResponse) ? core.default : core;
 const {
     MOBILE_UA,
@@ -24,212 +23,13 @@ const {
     buildParseResponse
 } = _core || {};
 
-if (typeof buildParseResponse !== 'function') {
-    console.error('[致命错误] core 加载失败，core =', typeof core, 'keys =', core ? Object.keys(core) : null);
-    console.error('[致命错误] _core =', typeof _core, 'keys =', _core ? Object.keys(_core) : null);
-}
-
-const app = express();
-app.use(express.json());
-
-// async 路由错误包装：Express 默认不捕获 async 路由抛出的异常，必须 try/catch 再调用 next()
-function wrap(fn) {
-    return (req, res, next) => {
-        Promise.resolve()
-            .then(() => fn(req, res, next))
-            .catch(err => {
-                console.error('[wrap async 捕获异常]', err && err.message, err && err.stack);
-                next(err);
-            });
-    };
-}
-
-// CORS
-app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, If-None-Match, If-Modified-Since');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
-    if (req.method === 'OPTIONS') return res.status(204).end();
-    next();
-});
-
-// 健康检查（带 core 加载诊断，排除 ESM import CJS 嵌套问题）
-app.get('/health', (req, res) => {
-    res.json({
-        status: typeof buildParseResponse === 'function' ? 'ok' : 'core_loading_error',
-        runtime: 'edgeone-node-functions',
-        path: req.url,
-        ts: Date.now(),
-        hasFetch: typeof fetch === 'function',
-        nodeVersion: process.version,
-        coreOK: typeof buildParseResponse === 'function',
-        coreKeys: _core ? Object.keys(_core) : null,
-        coreDefaultKeys: core && core.default ? Object.keys(core.default) : null
-    });
-});
-
-// 解析路由
-async function handleParse(rawUrl, res) {
-    try {
-        const { payload } = await buildParseResponse(rawUrl);
-        return res.json(payload);
-    } catch (e) {
-        console.error('[解析错误]', e.message);
-        return res.status(500).json({ error: e.message || '解析失败' });
-    }
-}
-
-app.post('/parse', wrap(async (req, res) => {
-    const rawUrl = req.body?.url || req.query?.url;
-    if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
-    await handleParse(rawUrl, res);
-}));
-
-app.get('/douyin', wrap(async (req, res) => {
-    const rawUrl = req.query.url;
-    if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
-    await handleParse(rawUrl, res);
-}));
-
-app.get('/douyin/self', wrap(async (req, res) => {
-    const rawUrl = req.query.url;
-    if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
-    await handleParse(rawUrl, res);
-}));
-
-// 视频代理（Node.js 原生 http，因为 EdgeOne fetch 流式传输可能有限制）
-app.get('/video', wrap(async (req, res) => {
-    const { url, id, download } = req.query;
-    let videoUrl = url;
-    if (id) {
-        const c = await getCachedVideo(id);
-        if (c) videoUrl = c.url;
-        else return res.status(404).json({ error: '视频缓存已过期，请重新解析' });
-    }
-    if (!videoUrl) return res.status(400).json({ error: '缺少URL参数' });
-
-    function proxyVideo(targetUrl, redirectCount) {
-        if (redirectCount > 5) return res.status(500).json({ error: '重定向次数过多' });
-        const client = targetUrl.startsWith('https') ? https : http;
-        const u = new URL(targetUrl);
-        const options = {
-            hostname: u.hostname,
-            port: u.port || (targetUrl.startsWith('https') ? 443 : 80),
-            path: u.pathname + u.search,
-            method: 'GET',
-            rejectUnauthorized: false,
-            headers: {
-                'User-Agent': MOBILE_UA,
-                'Referer': 'https://www.douyin.com/',
-                'Accept': '*/*',
-                'Accept-Language': 'zh-CN,zh;q=0.9'
-            }
-        };
-        if (req.headers.range) options.headers['Range'] = req.headers.range;
-
-        const req2 = client.request(options, (pres) => {
-            if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
-                let loc = pres.headers.location;
-                if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
-                pres.resume();
-                return proxyVideo(loc, redirectCount + 1);
-            }
-            if (pres.statusCode >= 400) {
-                let body = '';
-                pres.on('data', c => body += c);
-                pres.on('end', () => { if (!res.headersSent) res.status(pres.statusCode).json({ error: `视频请求失败: ${pres.statusCode}` }); });
-                return;
-            }
-            if (!res.headersSent) {
-                res.status(pres.statusCode);
-                res.setHeader('Content-Type', pres.headers['content-type'] || 'video/mp4');
-                res.setHeader('Accept-Ranges', 'bytes');
-                if (pres.headers['content-length']) res.setHeader('Content-Length', pres.headers['content-length']);
-                if (pres.headers['content-range']) res.setHeader('Content-Range', pres.headers['content-range']);
-                if (download) res.setHeader('Content-Disposition', 'attachment; filename=douyin_video.mp4');
-            }
-            pres.on('error', () => { if (!res.headersSent) res.status(500).json({ error: '视频流传输失败' }); });
-            pres.pipe(res);
-        });
-        req2.on('error', (err) => { if (!res.headersSent) res.status(500).json({ error: '视频代理失败: ' + err.message }); });
-        req2.setTimeout(30000, () => { req2.destroy(); if (!res.headersSent) res.status(504).json({ error: '视频请求超时' }); });
-        req2.end();
-    }
-    proxyVideo(videoUrl, 0);
-}));
-
-// 封面代理
-app.get('/cover', wrap((req, res) => {
-    const { url, download } = req.query;
-    if (!url) return res.status(400).json({ error: '缺少URL参数' });
-
-    function proxyCover(targetUrl, redirectCount) {
-        if (redirectCount > 5) return res.status(500).json({ error: '重定向次数过多' });
-        const client = targetUrl.startsWith('https') ? https : http;
-        const u = new URL(targetUrl);
-        const req2 = client.request({
-            hostname: u.hostname,
-            port: u.port || (targetUrl.startsWith('https') ? 443 : 80),
-            path: u.pathname + u.search,
-            method: 'GET',
-            rejectUnauthorized: false,
-            headers: {
-                'User-Agent': MOBILE_UA,
-                'Referer': 'https://www.douyin.com/',
-                'Accept': 'image/*,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9'
-            }
-        }, (pres) => {
-            if (pres.statusCode >= 301 && pres.statusCode <= 308 && pres.headers.location) {
-                let loc = pres.headers.location;
-                if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
-                pres.resume();
-                return proxyCover(loc, redirectCount + 1);
-            }
-            if (pres.statusCode >= 400) {
-                pres.resume();
-                if (!res.headersSent) res.status(pres.statusCode).json({ error: `封面请求失败: ${pres.statusCode}` });
-                return;
-            }
-            if (!res.headersSent) {
-                res.status(pres.statusCode);
-                res.setHeader('Content-Type', pres.headers['content-type'] || 'image/jpeg');
-                if (pres.headers['content-length']) res.setHeader('Content-Length', pres.headers['content-length']);
-                if (download) res.setHeader('Content-Disposition', 'attachment; filename=douyin_cover.jpg');
-            }
-            pres.on('error', () => { if (!res.headersSent) res.status(500).json({ error: '封面流传输失败' }); });
-            pres.pipe(res);
-        });
-        req2.on('error', (err) => { if (!res.headersSent) res.status(500).json({ error: '封面代理失败: ' + err.message }); });
-        req2.setTimeout(30000, () => { req2.destroy(); if (!res.headersSent) res.status(504).json({ error: '封面请求超时' }); });
-        req2.end();
-    }
-    proxyCover(url, 0);
-}));
-
-// 404 兜底（EdgeOne 传入的是剥离了 /api 前缀的路径）
-app.use((req, res) => {
-    if (!res.headersSent) {
-        res.status(404).json({ error: 'API 路由不存在: ' + req.method + ' ' + req.path, note: '函数收到的是剥离前缀后的路径' });
-    }
-});
-
-// 全局错误处理
-app.use((err, req, res, next) => {
-    console.error('[未捕获异常]', err && err.message, err && err.stack);
-    if (res.headersSent) return next(err);
-    const code = err && err.status ? err.status : 500;
-    const msg = err && err.message ? err.message : '服务器内部错误';
-    res.status(code).json({ error: msg });
-});
-
-// KV 绑定（可选，不能用 top-level await，esbuild target 可能是 node14）
+// KV 绑定（可选，不用 top-level await）
+const _require = createRequire(import.meta.url);
 try {
-    const sdk = require('@edgeone/cloudfunctions-sdk');
+    const sdk = _require('@edgeone/cloudfunctions-sdk');
     if (sdk?.KVNamespace?.getBinding) {
         const ns = sdk.KVNamespace.getBinding('VIDEO_CACHE');
-        if (ns && typeof ns.put === 'function' && typeof ns.get === 'function') {
+        if (ns && typeof ns.put === 'function') {
             setKVStore(ns);
             console.log('[EdgeOne] KV 绑定成功');
         }
@@ -238,5 +38,188 @@ try {
     console.log('[EdgeOne] KV 不可用，使用内存缓存');
 }
 
-// 导出 Express 实例
-export default app;
+// ========== 工具函数 ==========
+
+function jsonResponse(data, status = 200, extraHeaders = {}) {
+    const headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
+        'Access-Control-Allow-Headers': 'Content-Type, Range',
+        ...extraHeaders
+    };
+    return new Response(JSON.stringify(data), { status, headers });
+}
+
+// 从 Request 对象提取路径和查询参数
+function parseRequest(req) {
+    const url = new URL(req.url);
+    const path = url.pathname;
+    return { path, query: url.searchParams };
+}
+
+// ========== 路由处理 ==========
+
+// /api/health
+async function handleHealth(request) {
+    const { path } = parseRequest(request);
+    return jsonResponse({
+        status: typeof buildParseResponse === 'function' ? 'ok' : 'core_loading_error',
+        runtime: 'edgeone-node-functions',
+        path,
+        ts: Date.now(),
+        hasFetch: typeof fetch === 'function',
+        nodeVersion: process.version,
+        coreOK: typeof buildParseResponse === 'function',
+        coreKeys: _core ? Object.keys(_core) : null
+    });
+}
+
+// /api/douyin?url=...
+// /api/parse  (POST)
+async function handleParse(request) {
+    let rawUrl;
+    if (request.method === 'POST') {
+        try {
+            const body = await request.json();
+            rawUrl = body?.url;
+        } catch {
+            const { query } = parseRequest(request);
+            rawUrl = query.get('url');
+        }
+    } else {
+        const { query } = parseRequest(request);
+        rawUrl = query.get('url');
+    }
+    if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
+
+    try {
+        const { payload } = await buildParseResponse(rawUrl);
+        return jsonResponse(payload);
+    } catch (e) {
+        console.error('[解析错误]', e && e.message, e && e.stack);
+        return jsonResponse({ error: e.message || '解析失败' }, 500);
+    }
+}
+
+// /api/video?url=...  (视频代理，直接 fetch 流式透传)
+async function handleVideo(request) {
+    const { query } = parseRequest(request);
+    const videoUrl = query.get('url');
+    const id = query.get('id');
+    const download = query.get('download');
+
+    if (id) {
+        const c = await getCachedVideo(id);
+        if (c) videoUrl = c.url;
+        else return jsonResponse({ error: '视频缓存已过期，请重新解析' }, 404);
+    }
+    if (!videoUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
+
+    try {
+        const fwdHeaders = {
+            'User-Agent': MOBILE_UA,
+            'Referer': 'https://www.douyin.com/',
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9'
+        };
+        if (request.headers.get('range')) fwdHeaders['Range'] = request.headers.get('range');
+
+        const resp = await fetch(videoUrl, {
+            method: 'GET',
+            headers: fwdHeaders,
+            redirect: 'follow'
+        });
+
+        const headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': resp.headers.get('content-type') || 'video/mp4',
+            'Accept-Ranges': 'bytes'
+        };
+        const cl = resp.headers.get('content-length');
+        if (cl) headers['Content-Length'] = cl;
+        const cr = resp.headers.get('content-range');
+        if (cr) headers['Content-Range'] = cr;
+        if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_video.mp4"';
+
+        return new Response(resp.body, { status: resp.status, headers });
+    } catch (e) {
+        console.error('[视频代理错误]', e && e.message);
+        return jsonResponse({ error: '视频代理失败: ' + e.message }, 500);
+    }
+}
+
+// /api/cover?url=...  (封面代理)
+async function handleCover(request) {
+    const { query } = parseRequest(request);
+    const target = query.get('url');
+    const download = query.get('download');
+    if (!target) return jsonResponse({ error: '缺少URL参数' }, 400);
+
+    try {
+        const fwdHeaders = {
+            'User-Agent': MOBILE_UA,
+            'Referer': 'https://www.douyin.com/',
+            'Accept': 'image/*,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9'
+        };
+
+        const resp = await fetch(target, {
+            method: 'GET',
+            headers: fwdHeaders,
+            redirect: 'follow'
+        });
+
+        const headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': resp.headers.get('content-type') || 'image/jpeg'
+        };
+        const cl = resp.headers.get('content-length');
+        if (cl) headers['Content-Length'] = cl;
+        if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_cover.jpg"';
+
+        return new Response(resp.body, { status: resp.status, headers });
+    } catch (e) {
+        return jsonResponse({ error: '封面代理失败: ' + e.message }, 500);
+    }
+}
+
+// ========== 主入口：onRequest ==========
+
+export async function onRequest(context) {
+    const request = context.request;
+    const method = request.method;
+    const { path } = parseRequest(request);
+
+    console.log(`[EdgeOne] ${method} ${path}`);
+
+    // CORS 预检
+    if (method === 'OPTIONS') {
+        return new Response(null, {
+            status: 204,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
+                'Access-Control-Allow-Headers': 'Content-Type, Range'
+            }
+        });
+    }
+
+    try {
+        // 路由分发（EdgeOne 已剥离 /api 前缀）
+        if (path === '/health') return await handleHealth(request);
+        if (path === '/parse' || path === '/douyin' || path === '/douyin/self') {
+            return await handleParse(request);
+        }
+        if (path === '/video') return await handleVideo(request);
+        if (path === '/cover') return await handleCover(request);
+
+        return jsonResponse({ error: 'API 路由不存在: ' + method + ' ' + path }, 404);
+    } catch (e) {
+        console.error('[onRequest 未捕获异常]', e && e.message, e && e.stack);
+        return jsonResponse({ error: '服务器内部错误: ' + (e.message || e) }, 500);
+    }
+}
+
+// 同时导出 default 以兼容可能的框架模式回退
+export default { onRequest };
