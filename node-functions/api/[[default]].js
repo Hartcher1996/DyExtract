@@ -584,11 +584,24 @@ export async function onRequest(context) {
     }
 
     try {
+        // === 新主入口：/__dy__/*（全新路径前缀，functions/ 下无任何精确匹配文件，永远不被劫持）===
+        // 前端统一用 /__dy__/entry?action=parse|video|cover
+        if (path.startsWith('/__dy__/')) {
+            const action = (url.searchParams.get('action') || 'parse').toLowerCase();
+            switch (action) {
+                case 'parse': return await handleParse(request);
+                case 'video': return await handleVideo(request);
+                case 'cover': return await handleCover(request);
+                case 'health': return await handleHealth(request);
+                default: return jsonResponse({ error: '未知 action: ' + action }, 400);
+            }
+        }
+
         if (path === '/api/health') return await handleHealth(request);
         if (path === '/api/test') return await handleTest(request);
         if (path === '/api/debug') return await handleDebug(request);
 
-        // /api/entry 统一入口：基于 action 参数路由（前端统一用 /api/entry?action=xxx）
+        // /api/entry 统一入口（旧路径兼容）
         if (path === '/api/entry' || path === '/api/entry/') {
             const action = url.searchParams.get('action') || 'parse';
             switch (action) {
@@ -600,9 +613,7 @@ export async function onRequest(context) {
             }
         }
 
-        // /api/nparse — EdgeOne Edge Function 代理目标
-        // functions/api/entry.js 检测到 Edge Function 环境后，代理到此路径
-        // （node-functions 专属，functions/ 目录下无对应文件，不会被 Edge Function 劫持）
+        // /api/nparse — EdgeOne Edge Function 代理目标（旧兼容）
         if (path === '/api/nparse' || path === '/api/nparse/') {
             const action = url.searchParams.get('action') || 'parse';
             switch (action) {
