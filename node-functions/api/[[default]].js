@@ -36,10 +36,11 @@ app.use((req, res, next) => {
 });
 
 // 健康检查
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
         runtime: 'edgeone-node-functions',
+        path: req.url,
         ts: Date.now(),
         hasFetch: typeof fetch === 'function',
         nodeVersion: process.version
@@ -57,26 +58,26 @@ async function handleParse(rawUrl, res) {
     }
 }
 
-app.post('/api/parse', async (req, res) => {
+app.post('/parse', async (req, res) => {
     const rawUrl = req.body?.url || req.query?.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
 });
 
-app.get('/api/douyin', async (req, res) => {
+app.get('/douyin', async (req, res) => {
     const rawUrl = req.query.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
 });
 
-app.get('/api/douyin/self', async (req, res) => {
+app.get('/douyin/self', async (req, res) => {
     const rawUrl = req.query.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
 });
 
 // 视频代理（Node.js 原生 http，因为 EdgeOne fetch 流式传输可能有限制）
-app.get('/api/video', async (req, res) => {
+app.get('/video', async (req, res) => {
     const { url, id, download } = req.query;
     let videoUrl = url;
     if (id) {
@@ -137,7 +138,7 @@ app.get('/api/video', async (req, res) => {
 });
 
 // 封面代理
-app.get('/api/cover', (req, res) => {
+app.get('/cover', (req, res) => {
     const { url, download } = req.query;
     if (!url) return res.status(400).json({ error: '缺少URL参数' });
 
@@ -185,10 +186,10 @@ app.get('/api/cover', (req, res) => {
     proxyCover(url, 0);
 });
 
-// 404 兜底
+// 404 兜底（EdgeOne 传入的是剥离了 /api 前缀的路径）
 app.use((req, res) => {
     if (!res.headersSent) {
-        res.status(404).json({ error: 'API 路由不存在: ' + req.method + ' ' + req.url });
+        res.status(404).json({ error: 'API 路由不存在: ' + req.method + ' ' + req.path, note: '函数收到的是剥离前缀后的路径' });
     }
 });
 
