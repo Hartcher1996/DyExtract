@@ -1,19 +1,15 @@
 {
   "name": "dyextract",
   "version": "1.0.0",
-  "description": "抖音视频/图文解析去水印工具 - DyExtract",
+  "description": "通用短视频分享链接解析预览工具 - DyExtract",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "edgeone:build": "edgeone pages build",
-    "edgeone:deploy": "edgeone pages deploy",
-    "edgeone:link": "edgeone pages link"
+    "pages:dev": "npx wrangler@latest pages dev public --port 8788 --kv VIDEO_CACHE",
+    "pages:deploy": "npx wrangler@latest pages deploy public --project-name dyextract"
   },
   "dependencies": {
     "express": "^4.18.2"
-  },
-  "devDependencies": {
-    "edgeone": "^1.0.0"
   }
 }
