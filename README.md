@@ -1,6 +1,6 @@
 # DyExtract - 通用分享链接解析预览工具
 
-一个完全自建的公网分享链接解析工具，不依赖任何第三方 API，支持在线预览和下载无水印媒体内容。支持两种部署模式：本地 Node.js 直启 / Cloudflare Pages 无服务器托管。
+一个完全自建的公网分享链接解析工具，不依赖任何第三方 API，支持在线预览和下载无水印媒体内容。支持三种部署模式：本地 Node.js 直启 / Cloudflare Pages / EdgeOne Pages。
 
 ## ✨ 功能特性
 
@@ -13,9 +13,11 @@
 - ℹ️ **信息展示** - 显示标题、作者、图片数量等信息
 - 🛡️ **防盗链绕过** - 代理注入合规 Referer / 前端直链零带宽双模式
 - ⚡ **自建 API** - 完全独立自主解析，不依赖第三方服务
-- 🪶 **双运行时轻量架构**：
+- 🪶 **三运行时轻量架构**：
   - **本地模式**：仅依赖 express，常驻内存 ~50MB
-  - **Cloudflare Pages**：Functions + KV，无服务器，带宽无限免费
+  - **Cloudflare Pages**：Functions + KV 可选，无服务器，带宽无限免费
+  - **EdgeOne Pages**：Cloud Functions + KV 可选，国内大陆节点访问快
+- 🔓 **KV 可选**：前端通过 `/api/video?url=` 直传，**不依赖 KV 也能完整运行**
 - 🚫 **无** Puppeteer / Playwright / 任何无头浏览器 / 任何第三方解析 API
 
 ## 🚀 快速开始
@@ -57,6 +59,8 @@ npm start
 | KV 存储 | 1 GB |
 | 出站带宽 | **无限免费** 🔥 |
 
+> ⚠️ **KV 是可选的**：本项目前端通过 `/api/video?url=` 直传 URL，**不绑定 KV 也能完整运行**。KV 仅作为可选的跨实例缓存优化（如果绑了，会在 30 分钟 TTL 内命中缓存避免重复解析）。如果你只想快速部署体验，**跳过下面第二步和第三步**也能跑。
+
 ### 一、在 Cloudflare 控制台创建 Pages 项目
 
 1. 打开 [Cloudflare Dashboard → Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
@@ -67,13 +71,13 @@ npm start
    - **Build output directory**：`public`
 5. 点击 **Save and Deploy**，等首次部署完成（会拿到一个 `*.pages.dev` 域名，先用它访问能看到首页即可）
 
-### 二、创建 KV 命名空间（视频 URL 跨实例缓存）
+### 二、创建 KV 命名空间（可选，跨实例缓存优化）
 
 1. Cloudflare 控制台 → **Workers & Pages → KV**
 2. 点击 **Create a namespace**
 3. 填：**Name = `VIDEO_CACHE`**（必须完全一致），点 **Add**
 
-### 三、把 KV 绑定到 Pages 项目（最关键一步）
+### 三、把 KV 绑定到 Pages 项目（可选，仅当第二步已做）
 
 1. 回到 **Pages → 你的 DyExtract 项目 → Settings → Functions**
 2. 滚动到 **KV namespace bindings**，点击 **Add binding**
@@ -92,6 +96,44 @@ npm start
 1. Pages 项目 → **Custom domains → Set up a custom domain**
 2. 输入你的域名（Cloudflare 托管的 DNS 会自动配 CNAME/SSL）
 3. 等待证书签发完成，直接用 `https://你的域名/` 访问
+
+---
+
+## 🌏 部署到 EdgeOne Pages（国内访问快）
+
+EdgeOne 适合面向国内用户的场景，提供广州/上海/北京节点。
+
+### 一、创建 EdgeOne Pages 项目
+
+1. 打开 [腾讯云 EdgeOne 控制台 → Pages](https://console.cloud.tencent.com/edgeone/pages)
+2. 新建项目 → 选择 GitHub → 授权后选 `Hartcher1996/DyExtract` 仓库
+3. 构建设置（会自动识别 [`edgeone.json`](./edgeone.json)）：
+   - 构建命令：留空
+   - 输出目录：`public`
+4. 部署 → 拿到 `*.edgeone.app` 域名
+
+### 二、启用 KV Storage（可选）
+
+1. 项目设置 → KV 命名空间管理 → 启用
+2. 创建命名空间：`VIDEO_CACHE`
+3. 代码自动通过 `context.env.VIDEO_CACHE` 读取（已写在 [`cloud-functions/api/index.js`](./cloud-functions/api/index.js)）
+
+### 三、自定义域名（可选）
+
+EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → 自动签发 SSL。
+
+### EdgeOne vs Cloudflare 对比
+
+| 维度 | Cloudflare Pages | EdgeOne Pages |
+|------|-----------------|---------------|
+| 国内访问 | 慢（无大陆节点） | 快（广州/上海/北京） |
+| 带宽 | 无限免费 | 免费额度有限 |
+| 函数请求 | 10 万次/天 | 100 万次/月 |
+| 函数超时 | 免费 30s / 付费 90s+ | 默认 30s，可申请 120s |
+| KV 存储 | 免费 1GB | 免费额度少 |
+| 部署目录 | `functions/` | `cloud-functions/` |
+
+> 同一份代码同时支持两边部署，按你的主要用户群体选一个就行。
 
 ---
 
@@ -194,11 +236,14 @@ GET /api/douyin/self?url=<分享链接>
 ### 视频代理
 
 ```
-GET /api/video?id=<video_key>
-GET /api/video?id=<video_key>&download=1
+GET /api/video?url=<URL编码的抖音直链>          # 推荐，不依赖 KV
+GET /api/video?url=<...>&download=1              # 触发下载
+GET /api/video?id=<video_key>                    # 旧模式，需绑定 KV
 ```
 
-- `id`：视频缓存 ID（解析接口返回的 `video_key`），Cloudflare 模式下存 KV、本地模式存内存 Map
+- **两种传参方式都支持**：
+  - `id`：旧的 KV 查表模式（需要绑定 KV，未来兼容保留）
+  - `url`：**推荐**，直接传抖音直链，不依赖 KV，URL 编码后约 600~700 字节
 - `download`：可选，加此参数返回 `Content-Disposition: attachment` 触发浏览器下载
 - 支持 HTTP Range 断点续传（拖动进度条、下载续传都能用）
 
@@ -221,9 +266,10 @@ GET /api/cover?url=<图片URL>&download=1
 | 本地 HTTP 服务 | Node.js + Express（运行时唯一第三方依赖） |
 | Cloudflare 函数 | Pages Functions（Workers V8 运行时） |
 | 核心网络请求 | Web Standard `fetch()`（Node.js 18+ / Workers 双兼容） |
-| 缓存 | Cloudflare KV（跨实例共享 30 分钟过期）/ 内存 Map（本地降级） |
+| 缓存（可选） | Cloudflare KV / EdgeOne KV（跨实例共享 30 分钟过期）/ 内存 Map（本地降级）；**未绑定也能跑**，前端直传 `url` 参数 |
 | 媒体代理（本地） | Node.js 原生 `http`/`https` 模块流式 `pipe()` |
-| 媒体代理（Pages） | `fetch()` 返回 ReadableStream，`new Response(body, …)` 直接透传 |
+| 媒体代理（Cloudflare Pages） | `fetch()` 返回 ReadableStream，`new Response(body, …)` 直接透传 |
+| 媒体代理（EdgeOne Pages） | 复用本地 Express app（Node.js v20 运行时） |
 | 前端 | 原生 HTML / CSS / JavaScript，无框架 |
 | **明确不使用** | Puppeteer / Playwright / 任何无头浏览器 / 任何第三方解析 API |
 
@@ -238,7 +284,7 @@ GET /api/cover?url=<图片URL>&download=1
 3. **策略 A：嵌入式数据提取** - 用括号配平算法从 HTML 中切出 `window._ROUTER_DATA`，递归深度优先搜索含 `video.play_addr` 或 `images` 的节点
 4. **策略 B：官方 API 兜底** - 若策略 A 未取到媒体，带 Cookie 调用两个端点 × 两组参数组合，从 `aweme_detail` 中提取媒体
 5. **URL 修复** - 将 `playwm` 替换为 `play` 拿无水印视频，解码 `\u002F` 等转义字符
-6. **缓存视频 URL** - 视频类型用短 ID（`v1` / `v2` …）缓存真实播放地址（30 分钟过期）。Cloudflare Pages 模式下存 KV 多实例共享，本地模式存内存 Map
+6. **缓存视频 URL**（可选优化）- 视频类型用短 ID（`v1` / `v2` …）缓存真实播放地址（30 分钟过期）。Cloudflare Pages 模式下存 KV 多实例共享，本地模式存内存 Map。**未绑 KV 时降级到内存 Map 也能跑**，前端通过 `/api/video?url=` 直传不依赖此缓存
 
 ### 带宽优化：预览直连 + 下载按需代理
 

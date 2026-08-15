@@ -751,7 +751,7 @@
                         videoPlayer.load();
                     }
                     
-                    if (data.play_url && data.video_key) {
+                    if (data.play_url) {
                         // 显示加载状态
                         const loadingText = document.createElement('div');
                         loadingText.id = 'videoLoading';
@@ -760,7 +760,8 @@
                         videoPlayer.parentElement.style.position = 'relative';
                         videoPlayer.parentElement.appendChild(loadingText);
 
-                        const proxyUrl = `/api/video?id=${data.video_key}`;
+                        // 直接把 play_url 通过 url 参数传给 /api/video，不依赖 KV 查表
+                        const proxyUrl = `/api/video?url=${encodeURIComponent(data.play_url)}`;
 
                         const onCanPlay = () => {
                             const loadingEl = document.getElementById('videoLoading');
@@ -789,9 +790,9 @@
 
                     const downloadBtn = document.getElementById('downloadBtn');
                     const downloadDirectBtn = document.getElementById('downloadDirectBtn');
-                    if (data.play_url && data.video_key) {
-                        // 主按钮：服务器代理下载（兼容性最好）
-                        downloadBtn.href = `/api/video?id=${data.video_key}&download=1`;
+                    if (data.play_url) {
+                        // 主按钮：服务器代理下载（兼容性最好，直接传 url 参数，无需 KV）
+                        downloadBtn.href = `/api/video?url=${encodeURIComponent(data.play_url)}&download=1`;
                         downloadBtn.download = `douyin_${Date.now()}.mp4`;
                         downloadBtn.style.display = 'inline-block';
                         downloadBtn.textContent = '下载视频';

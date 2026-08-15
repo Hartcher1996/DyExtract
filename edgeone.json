@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "static": {
+    "output": "public",
+    "include": ["**/*"],
+    "exclude": ["cloud-functions/**", "functions/**", "lib/**", "server.js", "edgeone.json", "_routes.json"]
+  },
+  "functions": {
+    "cloud-functions/api/index.js": {
+      "path": "/api/*",
+      "memory": 128,
+      "timeout": 30
+    }
+  },
+  "regions": ["gn1", "sg1"],
+  "kv": [
+    {
+      "binding": "VIDEO_CACHE",
+      "namespace": "VIDEO_CACHE"
+    }
+  ]
+}

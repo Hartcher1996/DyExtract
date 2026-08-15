@@ -7,9 +7,15 @@
     "start": "node server.js",
     "dev": "node server.js",
     "pages:dev": "npx wrangler@latest pages dev public --port 8788 --kv VIDEO_CACHE",
-    "pages:deploy": "npx wrangler@latest pages deploy public --project-name dyextract"
+    "pages:deploy": "npx wrangler@latest pages deploy public --project-name dyextract",
+    "edgeone:build": "edgeone pages build",
+    "edgeone:deploy": "edgeone pages deploy",
+    "edgeone:link": "edgeone pages link"
   },
   "dependencies": {
     "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "edgeone": "^1.0.0"
   }
 }
