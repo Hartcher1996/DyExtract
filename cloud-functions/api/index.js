@@ -1,16 +1,45 @@
-// cloud-functions/api/index.js — EdgeOne Cloud Functions 入口
-// EdgeOne Cloud Functions 基于 Node.js v20 运行时，直接复用本地 Express app
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+// cloud-functions/api/index.js — EdgeOne Pages Cloud Functions 入口
+//
+// 运行模式：EdgeOne Pages Cloud Functions (Node.js v20) = HTTP 模式
+// 平台要求：启动一个 HTTP 服务，监听 0.0.0.0，端口取 process.env.PORT（默认 9000）
+// 不需要 export default handler；由平台把 /api/* 的请求反向代理到本地端口
+//
+// 注意：此文件使用 CommonJS（require/module.exports），与 package.json 默认模式一致。
+//       Cloudflare Pages 使用 functions/*.js（Workers ES Module），两边入口互相独立。
+
 const { app, setKVStore } = require('../../server.js');
 
-// EdgeOne 通过 context 注入 env（包含 KV 绑定）
-// EdgeOne Cloud Functions 入口约定：export default async function handler(context)
-export default async function handler(context) {
-    const { env = {}, request } = context || {};
-    if (env && env.VIDEO_CACHE) setKVStore(env.VIDEO_CACHE);
+const PORT = parseInt(process.env.PORT || '9000', 10);
+const HOST = '0.0.0.0';
 
-    // EdgeOne 把请求对象转给 Express 处理
-    // 注：EdgeOne Node.js 运行时支持直接返回 Express app
-    return app(request, new Response());
+// —— 可选：尝试绑定 EdgeOne KV ————————————————————————————————————————————
+// 若控制台给函数绑定了 VIDEO_CACHE 命名空间：
+//   1) 通过 @edgeone/cloudfunctions-sdk 拿 KV 句柄（需要 npm 装了依赖）
+//   2) 兜底：没有 SDK / 未绑定时，跳过，解析服务照常工作（因为前端走 /api/video?url= 直传）
+(async function initKV() {
+    try {
+        // EdgeOne 把 KV 绑定名放到 process.env 里（命名规则根据控制台）
+        // 有的版本用 @edgeone/cloudfunctions-sdk 访问
+        const sdk = requireOptional('@edgeone/cloudfunctions-sdk');
+        if (sdk && sdk.KVNamespace) {
+            const ns = sdk.KVNamespace.getBinding
+                ? sdk.KVNamespace.getBinding('VIDEO_CACHE')
+                : null;
+            if (ns && typeof ns.put === 'function' && typeof ns.get === 'function') {
+                setKVStore(ns);
+                console.log('[EdgeOne] KV 绑定成功: VIDEO_CACHE');
+                return;
+            }
+        }
+    } catch (e) { /* 忽略 */ }
+    console.log('[EdgeOne] 未检测到 KV 绑定，继续使用内存 Map（/api/video?url= 直传不依赖 KV）');
+})();
+
+function requireOptional(name) {
+    try { return require(name); } catch (_) { return null; }
 }
+
+// —— 启动 HTTP 服务 ————————————————————————————————————————————————————————
+app.listen(PORT, HOST, () => {
+    console.log(`[EdgeOne] DyExtract API listening on http://${HOST}:${PORT}`);
+});
