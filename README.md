@@ -116,9 +116,18 @@ EdgeOne 适合面向国内用户的场景，提供广州/上海/北京节点。
 
 1. 项目设置 → KV 命名空间管理 → 启用
 2. 创建命名空间：`VIDEO_CACHE`
-3. 代码自动通过 `context.env.VIDEO_CACHE` 读取（已写在 [`cloud-functions/api/index.js`](./cloud-functions/api/index.js)）
+3. 代码自动通过 `@edgeone/cloudfunctions-sdk` 的 `KVNamespace.getBinding('VIDEO_CACHE')` 读取（已写在 [`node-functions/api/entry.js`](./node-functions/api/entry.js) 和 [`node-functions/api/[[default]].js`](./node-functions/api/[[default]].js)）
 
-### 三、自定义域名（可选）
+### 三、关于路由路径的说明（重要）
+
+EdgeOne Pages 的 Cloud Functions 对历史报错的路径有平台级缓存/熔断机制，可能导致 `/api/parse`、`/api/douyin` 等路径在首次报错后即使代码修复也持续返回 "Error return from script"。为此：
+
+- 前端 [`public/index.html`](./public/index.html) 在 EdgeOne 部署时统一调用 **`/api/entry?action=parse|video|cover`** 这条全新路径
+- [`node-functions/api/entry.js`](./node-functions/api/entry.js) 通过 `action` 查询参数路由，避开历史污染的路径名
+- [`node-functions/api/[[default]].js`](./node-functions/api/[[default]].js) 作为兜底，处理 `/api/health`、`/api/debug`、`/api/video`、`/api/cover` 等明确路径，其余路径统一尝试解析
+- 若在旧项目上 `/api/entry` 仍报错，**新建一个 EdgeOne Pages 项目**即可（新项目的路径没有任何历史缓存污染）
+
+### 四、自定义域名（可选）
 
 EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → 自动签发 SSL。
 
@@ -131,9 +140,12 @@ EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → �
 | 函数请求 | 10 万次/天 | 100 万次/月 |
 | 函数超时 | 免费 30s / 付费 90s+ | 默认 30s，可申请 120s |
 | KV 存储 | 免费 1GB | 免费额度少 |
-| 部署目录 | `functions/` | `cloud-functions/` |
+| 部署目录 | `functions/` | `node-functions/` |
+| 路由机制 | 文件即路由（`/api/parse` → `parse.js`） | `[[default]].js` 兜底 + `entry.js` 统一入口 |
+| 网络 | 全局 `fetch()` 可用 | 全局 `fetch()` 无法发外网，强制 Node.js 原生 `http`/`https` |
+| 响应大小限制 | 无（流式） | 单次响应 ~10-20MB，**必须用 ReadableStream 流式回传** |
 
-> 同一份代码同时支持两边部署，按你的主要用户群体选一个就行。
+> 同一份核心代码（[`lib/core.js`](./lib/core.js)）同时支持两边部署，按你的主要用户群体选一个就行。
 
 ---
 
@@ -155,19 +167,24 @@ EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → �
 .
 ├── server.js                  # 本地运行：Express 主程序（Node.js 原生流代理）
 ├── lib/
-│   └── core.js                # 通用核心逻辑：fetch 网络层 + 解析 + KV/内存双模式缓存
-├── functions/                 # Cloudflare Pages Functions（仅 /api/* 命中）
+│   └── core.js                # 通用核心逻辑：网络层 + 解析 + KV/内存双模式缓存（三运行时共享）
+├── functions/                 # Cloudflare Pages Functions（文件即路由，仅 /api/* 命中）
 │   └── api/
 │       ├── parse.js           # POST/GET /api/parse
 │       ├── douyin.js          # GET /api/douyin
-│       ├── cover.js           # GET /api/cover  封面/图片代理
-│       ├── video.js           # GET /api/video  视频代理（支持 Range）
+│       ├── cover.js           # GET /api/cover  封面/图片代理（fetch body 流式透传）
+│       ├── video.js           # GET /api/video  视频代理（fetch body 流式，支持 Range）
 │       └── douyin/
 │           └── self.js        # GET /api/douyin/self  兼容旧接口
+├── node-functions/            # EdgeOne Pages Node Functions
+│   └── api/
+│       ├── entry.js           # /api/entry?action=parse|video|cover  统一入口（前端默认走这条）
+│       └── [[default]].js     # /api/health、/api/debug、/api/video、/api/cover + 其余路径兜底解析
 ├── public/                    # 前端静态资源（Pages 直接托管，不走函数）
 │   ├── index.html
 │   └── favicon.ico
-├── _routes.json               # Pages Functions 路由规则：只接管 /api/*
+├── _routes.json               # Cloudflare Pages Functions 路由规则：只接管 /api/*
+├── edgeone.json               # EdgeOne Pages 配置（输出目录 + Node Functions maxDuration）
 ├── package.json               # 依赖 + 脚本（本地启动 / wrangler 本地调试）
 ├── LICENSE                    # MIT
 └── README.md
@@ -176,6 +193,8 @@ EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → �
 ---
 
 ## 🔧 API 接口
+
+> **EdgeOne 用户注意**：前端在 EdgeOne 部署时统一走 `/api/entry?action=...`（见下文"统一入口"小节）。Cloudflare Pages 和本地模式则直接走下面的具体路径。
 
 ### 解析接口（前端主入口）
 
@@ -196,6 +215,17 @@ Content-Type: application/json
 GET /api/douyin?url=<分享链接>
 GET /api/douyin/self?url=<分享链接>
 ```
+
+### EdgeOne 统一入口（避开平台路由缓存污染）
+
+```
+GET /api/entry?action=parse&url=<分享链接>      # 解析
+GET /api/entry?action=video&url=<URL编码的直链>  # 视频代理（支持 Range、download=1）
+GET /api/entry?action=cover&url=<图片URL>        # 封面代理（支持 download=1）
+GET /api/entry?action=health                     # 健康检查
+```
+
+`action` 缺省时默认为 `parse`。前端 [`public/index.html`](./public/index.html) 会根据部署平台自动选择走 `/api/entry` 还是 `/api/parse` 等具体路径。
 
 **视频响应示例：**
 
@@ -265,11 +295,11 @@ GET /api/cover?url=<图片URL>&download=1
 |----|---------|
 | 本地 HTTP 服务 | Node.js + Express（运行时唯一第三方依赖） |
 | Cloudflare 函数 | Pages Functions（Workers V8 运行时） |
-| 核心网络请求 | Web Standard `fetch()`（Node.js 18+ / Workers 双兼容） |
+| 核心网络请求 | Web Standard `fetch()`（Cloudflare Workers / Node.js 18+）+ Node.js 原生 `http`/`https` 模块（EdgeOne 强制启用） |
 | 缓存（可选） | Cloudflare KV / EdgeOne KV（跨实例共享 30 分钟过期）/ 内存 Map（本地降级）；**未绑定也能跑**，前端直传 `url` 参数 |
 | 媒体代理（本地） | Node.js 原生 `http`/`https` 模块流式 `pipe()` |
 | 媒体代理（Cloudflare Pages） | `fetch()` 返回 ReadableStream，`new Response(body, …)` 直接透传 |
-| 媒体代理（EdgeOne Pages） | 复用本地 Express app（Node.js v20 运行时） |
+| 媒体代理（EdgeOne Pages） | Node.js 原生 `http`/`https` + Web `ReadableStream` 流式回传（规避 413 响应大小限制） |
 | 前端 | 原生 HTML / CSS / JavaScript，无框架 |
 | **明确不使用** | Puppeteer / Playwright / 任何无头浏览器 / 任何第三方解析 API |
 
