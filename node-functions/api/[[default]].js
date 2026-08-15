@@ -360,8 +360,44 @@ async function handleParse(request) {
 
     try {
         const result = await buildParseResponse(rawUrl);
-        console.log('[handleParse] 解析成功, 耗时:', Date.now() - t0, 'ms');
-        return jsonResponse(result.payload || result);
+        const elapsed = Date.now() - t0;
+        console.log('[handleParse] 解析成功, 耗时:', elapsed, 'ms');
+
+        const payload = result.payload || result;
+        console.log('[handleParse] payload type:', typeof payload, 'keys:', payload ? Object.keys(payload) : 'null');
+
+        // 安全序列化：防止特殊字符导致 JSON.stringify 失败
+        let jsonStr;
+        try {
+            jsonStr = JSON.stringify(payload);
+        } catch (e1) {
+            console.error('[handleParse] JSON.stringify 失败:', e1.message);
+            // 降级：手动构建
+            jsonStr = JSON.stringify({
+                success: true,
+                type: payload.type || 'video',
+                title: String(payload.title || '抖音视频'),
+                author: String(payload.author || '未知作者'),
+                play_url: String(payload.play_url || ''),
+                cover: String(payload.cover || ''),
+                item_id: String(payload.item_id || ''),
+                platform: 'douyin',
+                source: String(payload.source || 'self'),
+                _serialize_fallback: true
+            });
+        }
+
+        console.log('[handleParse] jsonStr length:', jsonStr.length);
+
+        return new Response(jsonStr, {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
+                'Access-Control-Allow-Headers': 'Content-Type, Range'
+            }
+        });
     } catch (e) {
         console.error('[解析错误] 耗时:', Date.now() - t0, 'ms,', e && e.message, e && e.stack);
         return jsonResponse({ error: e.message || '解析失败' }, 500);
