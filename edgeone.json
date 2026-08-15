@@ -2,13 +2,5 @@
   "version": 1,
   "static": {
     "output": "public"
-  },
-  "functions": {
-    "api": {
-      "entry": "cloud-functions/api/index.js",
-      "pattern": "/api/*",
-      "timeout": 30,
-      "memory": 256
-    }
   }
 }
