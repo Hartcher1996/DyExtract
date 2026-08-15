@@ -677,7 +677,7 @@
             parseBtn.disabled = true;
 
             try {
-                const response = await fetch(`/api/douyin?url=${encodeURIComponent(url)}`);
+                const response = await fetch(`/api/entry?action=parse&url=${encodeURIComponent(url)}`);
 
                 if (!response.ok) {
                     const errData = await response.json().catch(() => ({}));
@@ -721,7 +721,7 @@
                     imagesGrid.innerHTML = '';
                     
                     data.images.forEach((img, index) => {
-                        const fallbackProxy = `/api/cover?url=${encodeURIComponent(img.url)}`;
+                        const fallbackProxy = `/api/entry?action=cover&url=${encodeURIComponent(img.url)}`;
 
                         const card = document.createElement('div');
                         card.className = 'image-card';
@@ -761,7 +761,7 @@
                         videoPlayer.parentElement.appendChild(loadingText);
 
                         // 直接把 play_url 通过 url 参数传给 /api/video，不依赖 KV 查表
-                        const proxyUrl = `/api/video?url=${encodeURIComponent(data.play_url)}`;
+                        const proxyUrl = `/api/entry?action=video&url=${encodeURIComponent(data.play_url)}`;
 
                         const onCanPlay = () => {
                             const loadingEl = document.getElementById('videoLoading');
@@ -792,7 +792,7 @@
                     const downloadDirectBtn = document.getElementById('downloadDirectBtn');
                     if (data.play_url) {
                         // 主按钮：服务器代理下载（兼容性最好，直接传 url 参数，无需 KV）
-                        downloadBtn.href = `/api/video?url=${encodeURIComponent(data.play_url)}&download=1`;
+                        downloadBtn.href = `/api/entry?action=video&url=${encodeURIComponent(data.play_url)}&download=1`;
                         downloadBtn.download = `douyin_${Date.now()}.mp4`;
                         downloadBtn.style.display = 'inline-block';
                         downloadBtn.textContent = '下载视频';
