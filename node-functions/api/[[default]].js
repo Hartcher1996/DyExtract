@@ -206,13 +206,13 @@ export async function onRequest(context) {
     }
 
     try {
-        // 路由分发（EdgeOne 已剥离 /api 前缀）
-        if (path === '/health') return await handleHealth(request);
-        if (path === '/parse' || path === '/douyin' || path === '/douyin/self') {
+        // 路由分发（onRequest 模式下 EdgeOne 不剥离前缀，传入的是完整路径 /api/xxx）
+        if (path === '/api/health') return await handleHealth(request);
+        if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
             return await handleParse(request);
         }
-        if (path === '/video') return await handleVideo(request);
-        if (path === '/cover') return await handleCover(request);
+        if (path === '/api/video') return await handleVideo(request);
+        if (path === '/api/cover') return await handleCover(request);
 
         return jsonResponse({ error: 'API 路由不存在: ' + method + ' ' + path }, 404);
     } catch (e) {
