@@ -78,7 +78,9 @@ async function handleHealth(request) {
         useNodeHttp: true,
         nodeVersion: process.version,
         coreOK: typeof buildParseResponse === 'function',
-        coreKeys: _core ? Object.keys(_core) : null
+        coreKeys: _core ? Object.keys(_core) : null,
+        deploy_tag: 'v3-cab6a92-routes-fallback',
+        deploy_ts: 1786784800
     });
 }
 
@@ -556,12 +558,6 @@ export async function onRequest(context) {
             console.log('[EdgeOne] -> handleDebug');
             return await handleDebug(request);
         }
-        if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
-            console.log('[EdgeOne] -> handleParse');
-            const ret = await handleParse(request);
-            console.log('[EdgeOne] handleParse returned:', ret.status);
-            return ret;
-        }
         if (path === '/api/video') {
             console.log('[EdgeOne] -> handleVideo');
             return await handleVideo(request);
@@ -570,9 +566,17 @@ export async function onRequest(context) {
             console.log('[EdgeOne] -> handleCover');
             return await handleCover(request);
         }
-
-        console.log('[EdgeOne] 404 no route:', path);
-        return jsonResponse({ error: 'API 路由不存在: ' + method + ' ' + path }, 404);
+        // 兜底：其余所有路径（包括 /api/parse, /api/douyin, /api/douyin/self, /api/entry, /api/v2 等）
+        // 只要带 url 参数就尝试解析 —— 避免具体路由文件的平台缓存污染
+        console.log('[EdgeOne] fallback -> handleParse for path:', path);
+        try {
+            const ret = await handleParse(request);
+            console.log('[EdgeOne] fallback handleParse returned:', ret && ret.status);
+            return ret;
+        } catch (e) {
+            console.error('[EdgeOne] fallback handleParse THROW:', e && e.message);
+            return jsonResponse({ error: 'Fallback parse error: ' + (e.message || e) }, 500);
+        }
     } catch (e) {
         console.error('[EdgeOne] onRequest ERROR:', e && e.message, e && e.stack);
         return jsonResponse({ error: '服务器内部错误: ' + (e.message || e) }, 500);
