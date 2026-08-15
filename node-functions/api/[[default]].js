@@ -415,28 +415,49 @@ async function handleVideo(request) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
-                    return resolve(proxyVideo(loc, redirectCount + 1));
+                    proxyVideo(loc, redirectCount + 1).then(resolve).catch(reject);
+                    return;
                 }
                 if (pres.statusCode >= 400) {
                     pres.resume();
                     return resolve(jsonResponse({ error: `视频请求失败: ${pres.statusCode}` }, pres.statusCode));
                 }
+                // 流式传输，避免 413 Entity Too Large
+                const headers = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': pres.headers['content-type'] || 'video/mp4',
+                    'Accept-Ranges': 'bytes'
+                };
+                if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
+                if (pres.headers['content-range']) headers['Content-Range'] = pres.headers['content-range'];
+                if (pres.headers['cache-control']) headers['Cache-Control'] = pres.headers['cache-control'];
+                if (pres.headers['etag']) headers['ETag'] = pres.headers['etag'];
+                if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_video.mp4"';
 
-                const chunks = [];
-                pres.on('data', c => chunks.push(c));
-                pres.on('end', () => {
-                    const body = Buffer.concat(chunks);
-                    const headers = {
-                        'Access-Control-Allow-Origin': '*',
-                        'Content-Type': pres.headers['content-type'] || 'video/mp4',
-                        'Accept-Ranges': 'bytes'
-                    };
-                    if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
-                    if (pres.headers['content-range']) headers['Content-Range'] = pres.headers['content-range'];
-                    if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_video.mp4"';
-                    resolve(new Response(body, { status: pres.statusCode, headers }));
+                let closed = false;
+                const stream = new ReadableStream({
+                    start(ctrl) {
+                        pres.on('data', (c) => {
+                            if (closed) return;
+                            ctrl.enqueue(new Uint8Array(c.buffer, c.byteOffset, c.byteLength));
+                        });
+                        pres.on('end', () => {
+                            if (closed) return;
+                            closed = true;
+                            try { ctrl.close(); } catch (e) {}
+                        });
+                        pres.on('error', (err) => {
+                            if (closed) return;
+                            closed = true;
+                            try { ctrl.error(err); } catch (e) {}
+                        });
+                    },
+                    cancel() {
+                        closed = true;
+                        try { pres.destroy(); } catch (e) {}
+                    }
                 });
-                pres.on('error', reject);
+                resolve(new Response(stream, { status: pres.statusCode, headers }));
             });
             req.on('error', reject);
             req.setTimeout(28000, () => { req.destroy(); reject(new Error('视频请求超时')); });
@@ -486,26 +507,47 @@ async function handleCover(request) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
-                    return resolve(proxyCover(loc, redirectCount + 1));
+                    proxyCover(loc, redirectCount + 1).then(resolve).catch(reject);
+                    return;
                 }
                 if (pres.statusCode >= 400) {
                     pres.resume();
                     return resolve(jsonResponse({ error: `封面请求失败: ${pres.statusCode}` }, pres.statusCode));
                 }
+                // 封面一般较小，流式传输保险起见
+                const headers = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': pres.headers['content-type'] || 'image/jpeg'
+                };
+                if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
+                if (pres.headers['cache-control']) headers['Cache-Control'] = pres.headers['cache-control'];
+                if (pres.headers['etag']) headers['ETag'] = pres.headers['etag'];
+                if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_cover.jpg"';
 
-                const chunks = [];
-                pres.on('data', c => chunks.push(c));
-                pres.on('end', () => {
-                    const body = Buffer.concat(chunks);
-                    const headers = {
-                        'Access-Control-Allow-Origin': '*',
-                        'Content-Type': pres.headers['content-type'] || 'image/jpeg'
-                    };
-                    if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
-                    if (download) headers['Content-Disposition'] = 'attachment; filename="douyin_cover.jpg"';
-                    resolve(new Response(body, { status: pres.statusCode, headers }));
+                let closed = false;
+                const stream = new ReadableStream({
+                    start(ctrl) {
+                        pres.on('data', (c) => {
+                            if (closed) return;
+                            ctrl.enqueue(new Uint8Array(c.buffer, c.byteOffset, c.byteLength));
+                        });
+                        pres.on('end', () => {
+                            if (closed) return;
+                            closed = true;
+                            try { ctrl.close(); } catch (e) {}
+                        });
+                        pres.on('error', (err) => {
+                            if (closed) return;
+                            closed = true;
+                            try { ctrl.error(err); } catch (e) {}
+                        });
+                    },
+                    cancel() {
+                        closed = true;
+                        try { pres.destroy(); } catch (e) {}
+                    }
                 });
-                pres.on('error', reject);
+                resolve(new Response(stream, { status: pres.statusCode, headers }));
             });
             req.on('error', reject);
             req.setTimeout(15000, () => { req.destroy(); reject(new Error('封面请求超时')); });

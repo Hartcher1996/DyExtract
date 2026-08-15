@@ -70,7 +70,6 @@ function proxyMedia(targetUrl, kind, request, downloadFlag) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
-                    // 递归调用，不再套 resolve（doProxy 内部会 resolve）
                     doProxy(loc, depth + 1);
                     return;
                 }
@@ -78,27 +77,51 @@ function proxyMedia(targetUrl, kind, request, downloadFlag) {
                     pres.resume();
                     return resolve(jsonResponse({ error: `${kind}请求失败: ${pres.statusCode}` }, pres.statusCode));
                 }
-                const chunks = [];
-                pres.on('data', c => chunks.push(c));
-                pres.on('end', () => {
-                    const body = Buffer.concat(chunks);
-                    const ct = kind === 'video'
-                        ? (pres.headers['content-type'] || 'video/mp4')
-                        : (pres.headers['content-type'] || 'image/jpeg');
-                    const headers = {
-                        'Access-Control-Allow-Origin': '*',
-                        'Content-Type': ct
-                    };
-                    if (kind === 'video') headers['Accept-Ranges'] = 'bytes';
-                    if (pres.headers['content-length']) headers['Content-Length'] = pres.headers['content-length'];
-                    if (pres.headers['content-range']) headers['Content-Range'] = pres.headers['content-range'];
-                    if (downloadFlag) {
-                        const filename = kind === 'video' ? 'douyin_video.mp4' : 'douyin_cover.jpg';
-                        headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+                // —— 流式传输：用 ReadableStream 边读边发，避免 413 Entity Too Large ——
+                const ct = kind === 'video'
+                    ? (pres.headers['content-type'] || 'video/mp4')
+                    : (pres.headers['content-type'] || 'image/jpeg');
+                const outHeaders = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': ct
+                };
+                if (kind === 'video') outHeaders['Accept-Ranges'] = 'bytes';
+                if (pres.headers['content-length']) outHeaders['Content-Length'] = pres.headers['content-length'];
+                if (pres.headers['content-range']) outHeaders['Content-Range'] = pres.headers['content-range'];
+                if (pres.headers['cache-control']) outHeaders['Cache-Control'] = pres.headers['cache-control'];
+                if (pres.headers['last-modified']) outHeaders['Last-Modified'] = pres.headers['last-modified'];
+                if (pres.headers['etag']) outHeaders['ETag'] = pres.headers['etag'];
+                if (downloadFlag) {
+                    const filename = kind === 'video' ? 'douyin_video.mp4' : 'douyin_cover.jpg';
+                    outHeaders['Content-Disposition'] = `attachment; filename="${filename}"`;
+                }
+
+                // 用 Web ReadableStream 包装 Node 可读流，支持流式回传
+                let closed = false;
+                const stream = new ReadableStream({
+                    start(controller) {
+                        pres.on('data', (chunk) => {
+                            if (closed) return;
+                            controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+                        });
+                        pres.on('end', () => {
+                            if (closed) return;
+                            closed = true;
+                            try { controller.close(); } catch (e) {}
+                        });
+                        pres.on('error', (err) => {
+                            if (closed) return;
+                            closed = true;
+                            try { controller.error(err); } catch (e) {}
+                        });
+                    },
+                    cancel() {
+                        closed = true;
+                        try { pres.destroy(); } catch (e) {}
                     }
-                    resolve(new Response(body, { status: pres.statusCode, headers }));
                 });
-                pres.on('error', reject);
+
+                resolve(new Response(stream, { status: pres.statusCode, headers: outHeaders }));
             });
             req.on('error', reject);
             req.setTimeout(kind === 'video' ? 28000 : 15000, () => {
