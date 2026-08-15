@@ -13,21 +13,15 @@ const {
 } = _core || {};
 
 if (setUseNodeHttp) setUseNodeHttp(true);
-console.log('[entry.js] MODULE LOADED — 强制 Node.js 原生 http');
 
 const _require = createRequire(import.meta.url);
 try {
     const sdk = _require('@edgeone/cloudfunctions-sdk');
     if (sdk?.KVNamespace?.getBinding) {
         const ns = sdk.KVNamespace.getBinding('VIDEO_CACHE');
-        if (ns && typeof ns.put === 'function') {
-            setKVStore(ns);
-            console.log('[entry.js] KV OK');
-        }
+        if (ns && typeof ns.put === 'function') setKVStore(ns);
     }
-} catch (e) {
-    console.log('[entry.js] KV unavailable, use memory');
-}
+} catch (e) { /* 降级使用内存缓存 */ }
 
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
@@ -153,12 +147,10 @@ export async function onRequest(context) {
 
     try {
         const action = url.searchParams.get('action') || 'parse';
-        console.log('[entry.js] action =', action);
 
         if (action === 'health') {
             return jsonResponse({
                 ok: true,
-                tag: 'entry-v1',
                 ts: Date.now(),
                 coreOK: typeof buildParseResponse === 'function'
             });
@@ -188,14 +180,11 @@ export async function onRequest(context) {
         if (!rawUrl) rawUrl = url.searchParams.get('url') || '';
         if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
-        console.log('[entry.js] buildParseResponse start, URL =', rawUrl.substring(0, 80));
-        const t0 = Date.now();
         const result = await buildParseResponse(rawUrl);
-        console.log('[entry.js] buildParseResponse OK, ms =', Date.now() - t0);
         const payload = result.payload || result;
         return jsonResponse(payload);
     } catch (e) {
-        console.error('[entry.js] FATAL ERROR:', e && e.message, '\n', e && e.stack);
-        return jsonResponse({ error: '[entry.js] ' + (e.message || '未知错误') }, 500);
+        console.error('[entry.js] ERROR:', e && e.message);
+        return jsonResponse({ error: e.message || '解析失败' }, 500);
     }
 }

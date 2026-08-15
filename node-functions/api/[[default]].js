@@ -26,7 +26,6 @@ const {
 
 // EdgeOne Cloud Functions 的全局 fetch() 无法发起外网请求，强制使用 Node.js 原生 http/https
 if (setUseNodeHttp) setUseNodeHttp(true);
-console.log('[EdgeOne] 已强制使用 Node.js 原生 http 模块');
 
 // KV 绑定（可选，不用 top-level await）
 const _require = createRequire(import.meta.url);
@@ -34,14 +33,9 @@ try {
     const sdk = _require('@edgeone/cloudfunctions-sdk');
     if (sdk?.KVNamespace?.getBinding) {
         const ns = sdk.KVNamespace.getBinding('VIDEO_CACHE');
-        if (ns && typeof ns.put === 'function') {
-            setKVStore(ns);
-            console.log('[EdgeOne] KV 绑定成功');
-        }
+        if (ns && typeof ns.put === 'function') setKVStore(ns);
     }
-} catch (e) {
-    console.log('[EdgeOne] KV 不可用，使用内存缓存');
-}
+} catch (e) { /* 降级使用内存缓存 */ }
 
 // ========== 工具函数 ==========
 
@@ -73,14 +67,9 @@ async function handleHealth(request) {
         runtime: 'edgeone-node-functions',
         path,
         ts: Date.now(),
-        hasFetch: typeof fetch === 'function',
-        hasAbortController: typeof AbortController !== 'undefined',
         useNodeHttp: true,
         nodeVersion: process.version,
-        coreOK: typeof buildParseResponse === 'function',
-        coreKeys: _core ? Object.keys(_core) : null,
-        deploy_tag: 'v3-cab6a92-routes-fallback',
-        deploy_ts: 1786784800
+        coreOK: typeof buildParseResponse === 'function'
     });
 }
 
@@ -357,17 +346,11 @@ async function handleParse(request) {
     }
     if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
-    console.log('[handleParse] start, URL:', rawUrl);
-    const t0 = Date.now();
-
-    // 直接调用 buildParseResponse，与 /api/debug Step 4 完全一致
     try {
         const result = await buildParseResponse(rawUrl);
-        console.log('[handleParse] success, ms:', Date.now() - t0);
         const payload = result.payload || result;
         return jsonResponse(payload);
     } catch (e) {
-        console.log('[handleParse] error, ms:', Date.now() - t0, 'err:', e && e.message);
         return jsonResponse({ error: e.message || '解析失败' }, 500);
     }
 }
@@ -569,9 +552,6 @@ export async function onRequest(context) {
     const method = request.method;
     const url = new URL(request.url);
     const path = url.pathname;
-    const search = url.search;
-
-    console.log(`[EdgeOne] onRequest start: ${method} ${path}${search}`);
 
     // CORS 预检
     if (method === 'OPTIONS') {
@@ -586,42 +566,16 @@ export async function onRequest(context) {
     }
 
     try {
-        // 路由分发
-        console.log('[EdgeOne] routing:', path);
-        if (path === '/api/health') {
-            console.log('[EdgeOne] -> handleHealth');
-            return await handleHealth(request);
-        }
-        if (path === '/api/test') {
-            console.log('[EdgeOne] -> handleTest');
-            return await handleTest(request);
-        }
-        if (path === '/api/debug') {
-            console.log('[EdgeOne] -> handleDebug');
-            return await handleDebug(request);
-        }
-        if (path === '/api/video') {
-            console.log('[EdgeOne] -> handleVideo');
-            return await handleVideo(request);
-        }
-        if (path === '/api/cover') {
-            console.log('[EdgeOne] -> handleCover');
-            return await handleCover(request);
-        }
-        // 兜底：其余所有路径（包括 /api/parse, /api/douyin, /api/douyin/self, /api/entry, /api/v2 等）
-        // 只要带 url 参数就尝试解析 —— 避免具体路由文件的平台缓存污染
-        console.log('[EdgeOne] fallback -> handleParse for path:', path);
-        try {
-            const ret = await handleParse(request);
-            console.log('[EdgeOne] fallback handleParse returned:', ret && ret.status);
-            return ret;
-        } catch (e) {
-            console.error('[EdgeOne] fallback handleParse THROW:', e && e.message);
-            return jsonResponse({ error: 'Fallback parse error: ' + (e.message || e) }, 500);
-        }
+        if (path === '/api/health') return await handleHealth(request);
+        if (path === '/api/test') return await handleTest(request);
+        if (path === '/api/debug') return await handleDebug(request);
+        if (path === '/api/video') return await handleVideo(request);
+        if (path === '/api/cover') return await handleCover(request);
+        // 兜底：其余路径（/api/parse, /api/douyin, /api/douyin/self, /api/entry 等）只要带 url 参数就尝试解析
+        return await handleParse(request);
     } catch (e) {
-        console.error('[EdgeOne] onRequest ERROR:', e && e.message, e && e.stack);
-        return jsonResponse({ error: '服务器内部错误: ' + (e.message || e) }, 500);
+        console.error('[EdgeOne] ERROR:', e && e.message);
+        return jsonResponse({ error: e.message || '服务器内部错误' }, 500);
     }
 }
 
