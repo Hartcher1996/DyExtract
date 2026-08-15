@@ -600,6 +600,20 @@ export async function onRequest(context) {
             }
         }
 
+        // /api/nparse — EdgeOne Edge Function 代理目标
+        // functions/api/entry.js 检测到 Edge Function 环境后，代理到此路径
+        // （node-functions 专属，functions/ 目录下无对应文件，不会被 Edge Function 劫持）
+        if (path === '/api/nparse' || path === '/api/nparse/') {
+            const action = url.searchParams.get('action') || 'parse';
+            switch (action) {
+                case 'parse': return await handleParse(request);
+                case 'video': return await handleVideo(request);
+                case 'cover': return await handleCover(request);
+                case 'health': return await handleHealth(request);
+                default: return jsonResponse({ error: '未知 action: ' + action }, 400);
+            }
+        }
+
         // 兼容旧路由（直接 /api/video, /api/cover, /api/parse 等）
         if (path === '/api/video') return await handleVideo(request);
         if (path === '/api/cover') return await handleCover(request);
