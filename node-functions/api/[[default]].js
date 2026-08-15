@@ -69,10 +69,77 @@ async function handleHealth(request) {
         path,
         ts: Date.now(),
         hasFetch: typeof fetch === 'function',
+        hasAbortController: typeof AbortController !== 'undefined',
         nodeVersion: process.version,
         coreOK: typeof buildParseResponse === 'function',
         coreKeys: _core ? Object.keys(_core) : null
     });
+}
+
+// /api/test — 诊断端点：逐步测试 fetch 网络连通性
+async function handleTest(request) {
+    const { query } = parseRequest(request);
+    const testUrl = query.get('url') || 'https://httpbin.org/get';
+    const results = { steps: [], ts: Date.now() };
+
+    // Step 1: 基础 fetch 测试
+    results.steps.push({ step: '1-basic-fetch', url: testUrl });
+    try {
+        const t0 = Date.now();
+        const resp = await fetch(testUrl, {
+            method: 'GET',
+            headers: { 'User-Agent': MOBILE_UA },
+            redirect: 'follow'
+        });
+        const text = await resp.text();
+        results.steps.push({
+            step: '1-basic-fetch',
+            status: resp.status,
+            timeMs: Date.now() - t0,
+            bodyLen: text.length,
+            bodyPreview: text.substring(0, 200)
+        });
+    } catch (e) {
+        results.steps.push({ step: '1-basic-fetch', error: e.message, name: e.name });
+    }
+
+    // Step 2: nativeRequest 测试（如果 core 可用）
+    if (_core && _core.nativeRequest) {
+        results.steps.push({ step: '2-native-request', url: testUrl });
+        try {
+            const t0 = Date.now();
+            const r = await _core.nativeRequest(testUrl, { timeoutMs: 8000 });
+            results.steps.push({
+                step: '2-native-request',
+                status: r.status,
+                timeMs: Date.now() - t0,
+                bodyLen: (r.body || '').length,
+                bodyPreview: (r.body || '').substring(0, 200)
+            });
+        } catch (e) {
+            results.steps.push({ step: '2-native-request', error: e.message });
+        }
+    }
+
+    // Step 3: 抖音短链接测试
+    const douyinUrl = 'https://v.douyin.com/pbgLvxVWHoo/';
+    results.steps.push({ step: '3-douyin-short', url: douyinUrl });
+    try {
+        const t0 = Date.now();
+        const r = await _core.nativeRequest(douyinUrl, { timeoutMs: 10000 });
+        results.steps.push({
+            step: '3-douyin-short',
+            status: r.status,
+            timeMs: Date.now() - t0,
+            bodyLen: (r.body || '').length,
+            hasItemId: /(\d{17,19})/.test(r.body || ''),
+            bodyPreview: (r.body || '').substring(0, 300)
+        });
+    } catch (e) {
+        results.steps.push({ step: '3-douyin-short', error: e.message });
+    }
+
+    return jsonResponse(results);
 }
 
 // /api/douyin?url=...
@@ -94,13 +161,22 @@ async function handleParse(request) {
     if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
     console.log('[handleParse] URL:', rawUrl);
+    const t0 = Date.now();
+
+    // 全局超时保护：EdgeOne 函数 30s 限制，25s 超时留 5s 余量返回响应
+    const GLOBAL_TIMEOUT = 25000;
 
     try {
-        const result = await buildParseResponse(rawUrl);
-        console.log('[handleParse] 解析成功, payload keys:', Object.keys(result || {}));
+        const result = await Promise.race([
+            buildParseResponse(rawUrl),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('解析全局超时(' + GLOBAL_TIMEOUT + 'ms)')), GLOBAL_TIMEOUT)
+            )
+        ]);
+        console.log('[handleParse] 解析成功, 耗时:', Date.now() - t0, 'ms');
         return jsonResponse(result.payload || result);
     } catch (e) {
-        console.error('[解析错误]', e && e.message, e && e.stack);
+        console.error('[解析错误] 耗时:', Date.now() - t0, 'ms,', e && e.message, e && e.stack);
         return jsonResponse({ error: e.message || '解析失败' }, 500);
     }
 }
@@ -211,6 +287,7 @@ export async function onRequest(context) {
     try {
         // 路由分发（onRequest 模式下 EdgeOne 不剥离前缀，传入的是完整路径 /api/xxx）
         if (path === '/api/health') return await handleHealth(request);
+        if (path === '/api/test') return await handleTest(request);
         if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
             return await handleParse(request);
         }
