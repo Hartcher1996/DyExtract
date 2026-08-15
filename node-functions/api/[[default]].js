@@ -15,15 +15,34 @@ import core from '../../lib/core.js';
 
 const require = createRequire(import.meta.url);
 
+// 兼容 ESM import CJS 时可能的 default 嵌套
+const _core = (core && core.default && !core.buildParseResponse) ? core.default : core;
 const {
     MOBILE_UA,
     setKVStore,
     getCachedVideo,
     buildParseResponse
-} = core;
+} = _core || {};
+
+if (typeof buildParseResponse !== 'function') {
+    console.error('[致命错误] core 加载失败，core =', typeof core, 'keys =', core ? Object.keys(core) : null);
+    console.error('[致命错误] _core =', typeof _core, 'keys =', _core ? Object.keys(_core) : null);
+}
 
 const app = express();
 app.use(express.json());
+
+// async 路由错误包装：Express 默认不捕获 async 路由抛出的异常，必须 try/catch 再调用 next()
+function wrap(fn) {
+    return (req, res, next) => {
+        Promise.resolve()
+            .then(() => fn(req, res, next))
+            .catch(err => {
+                console.error('[wrap async 捕获异常]', err && err.message, err && err.stack);
+                next(err);
+            });
+    };
+}
 
 // CORS
 app.use((req, res, next) => {
@@ -35,15 +54,18 @@ app.use((req, res, next) => {
     next();
 });
 
-// 健康检查
+// 健康检查（带 core 加载诊断，排除 ESM import CJS 嵌套问题）
 app.get('/health', (req, res) => {
     res.json({
-        status: 'ok',
+        status: typeof buildParseResponse === 'function' ? 'ok' : 'core_loading_error',
         runtime: 'edgeone-node-functions',
         path: req.url,
         ts: Date.now(),
         hasFetch: typeof fetch === 'function',
-        nodeVersion: process.version
+        nodeVersion: process.version,
+        coreOK: typeof buildParseResponse === 'function',
+        coreKeys: _core ? Object.keys(_core) : null,
+        coreDefaultKeys: core && core.default ? Object.keys(core.default) : null
     });
 });
 
@@ -58,26 +80,26 @@ async function handleParse(rawUrl, res) {
     }
 }
 
-app.post('/parse', async (req, res) => {
+app.post('/parse', wrap(async (req, res) => {
     const rawUrl = req.body?.url || req.query?.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
-});
+}));
 
-app.get('/douyin', async (req, res) => {
+app.get('/douyin', wrap(async (req, res) => {
     const rawUrl = req.query.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
-});
+}));
 
-app.get('/douyin/self', async (req, res) => {
+app.get('/douyin/self', wrap(async (req, res) => {
     const rawUrl = req.query.url;
     if (!rawUrl) return res.status(400).json({ error: '缺少URL参数' });
     await handleParse(rawUrl, res);
-});
+}));
 
 // 视频代理（Node.js 原生 http，因为 EdgeOne fetch 流式传输可能有限制）
-app.get('/video', async (req, res) => {
+app.get('/video', wrap(async (req, res) => {
     const { url, id, download } = req.query;
     let videoUrl = url;
     if (id) {
@@ -135,10 +157,10 @@ app.get('/video', async (req, res) => {
         req2.end();
     }
     proxyVideo(videoUrl, 0);
-});
+}));
 
 // 封面代理
-app.get('/cover', (req, res) => {
+app.get('/cover', wrap((req, res) => {
     const { url, download } = req.query;
     if (!url) return res.status(400).json({ error: '缺少URL参数' });
 
@@ -184,7 +206,7 @@ app.get('/cover', (req, res) => {
         req2.end();
     }
     proxyCover(url, 0);
-});
+}));
 
 // 404 兜底（EdgeOne 传入的是剥离了 /api 前缀的路径）
 app.use((req, res) => {
