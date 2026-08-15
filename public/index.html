@@ -679,12 +679,29 @@
             try {
                 const response = await fetch(`/api/entry?action=parse&url=${encodeURIComponent(url)}`);
 
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData.error || '解析服务暂不可用');
+                // 关键防御：先拿 text() 判断是不是 JSON，防止 Functions 未命中 / 平台错误页
+                // 把静态 index.html（<!DOCTYPE...）直接 .json() 会抛 "Unexpected token '<'"
+                const rawText = await response.text();
+                const trimmed = rawText.trim();
+                const looksLikeJson = trimmed.length && (trimmed[0] === '{' || trimmed[0] === '[');
+                let data;
+                if (looksLikeJson) {
+                    try { data = JSON.parse(rawText); } catch (parseErr) {
+                        throw new Error('解析服务返回格式异常（JSON 语法错误）');
+                    }
+                } else {
+                    if (!response.ok) {
+                        // 非 2xx + 非 JSON：可能是平台 502/545 HTML 错误页
+                        const title = (rawText.match(/<title>([^<]{0,100})<\/title>/i) || [])[1] || '';
+                        throw new Error(`服务端错误(${response.status})${title ? '：' + title : ''}，请稍后重试`);
+                    }
+                    // 2xx + 非 JSON：典型是 Functions 路径未匹配，Pages 回落静态 index.html
+                    throw new Error('解析服务暂不可用（服务端未返回 JSON），请稍后刷新重试');
                 }
 
-                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || '解析服务暂不可用');
+                }
 
                 if (data.error) {
                     throw new Error(data.error);

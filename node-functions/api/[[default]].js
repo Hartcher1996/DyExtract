@@ -201,7 +201,9 @@ async function handleDebug(request) {
         });
         const body = r.body || '';
         let parsed = null;
-        try { parsed = JSON.parse(body); } catch (e) {}
+        if (body && body.trim().charCodeAt(0) === 123 /* '{' */) {
+            try { parsed = JSON.parse(body); } catch (e) {}
+        }
         results.steps.push({
             step: '3c-api-test',
             status: r.status,
