@@ -1,6 +1,0 @@
-{
-  "version": 1,
-  "description": "DyExtract Pages Functions 路由 — 仅 /api/* 走函数，其余静态资源直接托管",
-  "include": ["/api/*"],
-  "exclude": []
-}

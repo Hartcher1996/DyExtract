@@ -1,163 +1,59 @@
-# DyExtract - 通用分享链接解析预览工具
+# DyExtract - 短视频无水印解析与预览工具
 
-一个完全自建的公网分享链接解析工具，不依赖任何第三方 API，支持在线预览和下载无水印媒体内容。支持三种部署模式：本地 Node.js 直启 / Cloudflare Pages / EdgeOne Pages。
+一个完全自建的短视频分享链接解析工具，**不依赖任何第三方解析 API，不使用 Puppeteer / Playwright 等无头浏览器**。纯前端 + Cloudflare Pages Functions 零成本部署。
 
 ## ✨ 功能特性
 
-- 🔗 **链接解析** - 支持短链接、分享文本自动提取
-- 🎬 **视频解析** - 解析视频，在线预览播放，下载无水印高清视频
-- 🖼️ **图文解析** - 自动识别图文类型，提取所有图片
-- 📸 **封面下载** - 支持视频封面预览和下载
-- 📥 **批量下载** - 图文支持单张下载和批量下载全部图片
-- 📱 **响应式布局** - 支持 PC 与移动端，手机比例 9:16 展示
-- ℹ️ **信息展示** - 显示标题、作者、图片数量等信息
-- 🛡️ **防盗链绕过** - 代理注入合规 Referer / 前端直链零带宽双模式
-- ⚡ **自建 API** - 完全独立自主解析，不依赖第三方服务
-- 🪶 **三运行时轻量架构**：
-  - **本地模式**：仅依赖 express，常驻内存 ~50MB
-  - **Cloudflare Pages**：Functions + KV 可选，无服务器，带宽无限免费
-  - **EdgeOne Pages**：Cloud Functions + KV 可选，国内大陆节点访问快
-- 🔓 **KV 可选**：前端通过 `/api/video?url=` 直传，**不依赖 KV 也能完整运行**
-- 🚫 **无** Puppeteer / Playwright / 任何无头浏览器 / 任何第三方解析 API
+- 🔗 **链接解析** - 自动识别短链、分享文本，提取真实视频/图文内容 ID
+- 🎬 **视频解析** - 解析无水印视频，在线预览播放，支持一键下载
+- 🖼️ **图文解析** - 自动识别图文类型，提取全部图片，单张或批量下载
+- 📸 **封面下载** - 视频封面预览 + 一键下载
+- 📱 **响应式布局** - PC / 移动端自适应，视频区按 9:16 比例展示
+- 🛡️ **防盗链绕过** - 图片预览直连零带宽，视频代理注入合规 `Referer`
+- ⚡ **完全自建** - 解析逻辑全部自写，直接请求抖音官方 API
+- 🪶 **零成本运行** - 部署在 Cloudflare Pages，免费额度足够个人使用
+  - Functions 调用：10 万次 / 天
+  - 出站带宽：**无限免费**
+- 🔓 **不绑定 KV 也能跑** - 视频 URL 直接从前端传到代理接口，KV 仅作为可选缓存优化
 
-## 🚀 快速开始
+## 支持的平台
 
-### 环境要求
-
-- **Node.js**: >= 18.0.0（推荐 20 LTS；需内置 `fetch` API）
-- **npm**: >= 8.0.0
-
-### 本地运行
-
-```bash
-# 克隆项目
-git clone https://github.com/Hartcher1996/DyExtract.git
-cd DyExtract
-
-# 安装依赖
-npm install
-
-# 启动服务
-npm start
-```
-
-启动后访问：**http://localhost:3001**
-
-> 本地模式下视频 URL 缓存使用内存 Map（30 分钟过期），进程重启会失效。
+目前支持 **抖音**（`douyin.com` / `iesdouyin.com` / `v.douyin.com` 短链）。
 
 ---
 
-## ☁️ 部署到 Cloudflare Pages（推荐，零成本、带宽无限）
+## 🚀 一键部署到 Cloudflare Pages（推荐，零成本）
 
-### 零、前置说明
+### 第一步：Fork 并创建 Pages 项目
 
-| 项目 | 免费额度 |
-|------|---------|
-| Pages Functions 请求 | 10 万次 / 天 |
-| KV 读取 | 10 万次 / 天 |
-| KV 写入 | 1000 次 / 天 |
-| KV 存储 | 1 GB |
-| 出站带宽 | **无限免费** 🔥 |
-
-> ⚠️ **KV 是可选的**：本项目前端通过 `/api/video?url=` 直传 URL，**不绑定 KV 也能完整运行**。KV 仅作为可选的跨实例缓存优化（如果绑了，会在 30 分钟 TTL 内命中缓存避免重复解析）。如果你只想快速部署体验，**跳过下面第二步和第三步**也能跑。
-
-### 一、在 Cloudflare 控制台创建 Pages 项目
-
-1. 打开 [Cloudflare Dashboard → Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
-2. 点击 **Create → Pages → Connect to Git**
-3. 授权 GitHub 后选择 `Hartcher1996/DyExtract` 仓库，点击 **Begin setup**
-4. 配置构建信息（框架预设选 **None**）：
-   - **Build command**：留空（本项目静态文件直接在 `public/`，无需构建）
+1. 点击页面右上角 **Fork** 把本仓库克隆到你自己的 GitHub 账号
+2. 打开 [Cloudflare Dashboard → Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
+3. 点击 **Create → Pages → Connect to Git**
+4. 授权 GitHub，选择你刚 Fork 的 `DyExtract` 仓库，点击 **Begin setup**
+5. 构建设置（框架预设选 **None**）：
+   - **Build command**：留空（本项目没有构建步骤，静态文件直接在 `public/`）
    - **Build output directory**：`public`
-5. 点击 **Save and Deploy**，等首次部署完成（会拿到一个 `*.pages.dev` 域名，先用它访问能看到首页即可）
+6. 点击 **Save and Deploy**，等待 1~2 分钟首次部署完成
+7. 访问部署好的 `*.pages.dev` 域名，能看到首页即成功
 
-### 二、创建 KV 命名空间（可选，跨实例缓存优化）
+### 第二步：绑定 KV（可选，跨实例缓存优化）
+
+> **跳过也能完全正常使用**。KV 仅作为跨实例的视频 URL 缓存优化（30 分钟 TTL），不绑 KV 时前端直接通过 `?url=` 参数把直链传给代理接口，效果完全相同。
 
 1. Cloudflare 控制台 → **Workers & Pages → KV**
 2. 点击 **Create a namespace**
-3. 填：**Name = `VIDEO_CACHE`**（必须完全一致），点 **Add**
-
-### 三、把 KV 绑定到 Pages 项目（可选，仅当第二步已做）
-
-1. 回到 **Pages → 你的 DyExtract 项目 → Settings → Functions**
-2. 滚动到 **KV namespace bindings**，点击 **Add binding**
+3. **Name** 填 `VIDEO_CACHE`（必须完全一致），点击 **Add**
+4. 回到 Pages 项目 → **Settings → Functions**
+5. 找到 **KV namespace bindings** → **Add binding**：
    - **Variable name**：`VIDEO_CACHE`（大小写敏感，必须完全一致）
-   - **KV namespace**：选刚才创建的 `VIDEO_CACHE`
-3. 保存后必须**重新触发一次部署**（Settings → Env variables 那里保存会触发，或在 Git 推一次空提交，或在 Deployments 里对最近一次 successful deployment 点 **Retry deployment**）
+   - **KV namespace**：选择刚创建的 `VIDEO_CACHE`
+6. 保存后随便推一个空提交触发重新部署（或在 Deployments 页对最近成功部署点 **Retry deployment**）
 
-### 四、验证
-
-1. 访问你的 `*.pages.dev` 域名，首页正常显示
-2. 粘贴分享链接点击解析，能拿到视频/图片结果说明解析通了
-3. 点击视频预览能正常播放说明 `/api/video` Functions 通了
-
-### 五、自定义域名（可选）
+### 第三步：自定义域名（可选）
 
 1. Pages 项目 → **Custom domains → Set up a custom domain**
-2. 输入你的域名（Cloudflare 托管的 DNS 会自动配 CNAME/SSL）
-3. 等待证书签发完成，直接用 `https://你的域名/` 访问
-
----
-
-## 🌏 部署到 EdgeOne Pages（国内访问快）
-
-EdgeOne 适合面向国内用户的场景，提供广州/上海/北京节点。
-
-### 一、创建 EdgeOne Pages 项目
-
-1. 打开 [腾讯云 EdgeOne 控制台 → Pages](https://console.cloud.tencent.com/edgeone/pages)
-2. 新建项目 → 选择 GitHub → 授权后选 `Hartcher1996/DyExtract` 仓库
-3. 构建设置（会自动识别 [`edgeone.json`](./edgeone.json)）：
-   - 构建命令：留空
-   - 输出目录：`public`
-4. 部署 → 拿到 `*.edgeone.app` 域名
-
-### 二、启用 KV Storage（可选）
-
-1. 项目设置 → KV 命名空间管理 → 启用
-2. 创建命名空间：`VIDEO_CACHE`
-3. 代码自动通过 `@edgeone/cloudfunctions-sdk` 的 `KVNamespace.getBinding('VIDEO_CACHE')` 读取（已写在 [`node-functions/api/entry.js`](./node-functions/api/entry.js) 和 [`node-functions/api/[[default]].js`](./node-functions/api/[[default]].js)）
-
-### 三、关于路由路径的说明（重要）
-
-EdgeOne Pages 的 Cloud Functions 对历史报错的路径有平台级缓存/熔断机制，可能导致 `/api/parse`、`/api/douyin` 等路径在首次报错后即使代码修复也持续返回 "Error return from script"。为此：
-
-- 前端 [`public/index.html`](./public/index.html) 在 EdgeOne 部署时统一调用 **`/api/entry?action=parse|video|cover`** 这条全新路径
-- [`node-functions/api/entry.js`](./node-functions/api/entry.js) 通过 `action` 查询参数路由，避开历史污染的路径名
-- [`node-functions/api/[[default]].js`](./node-functions/api/[[default]].js) 作为兜底，处理 `/api/health`、`/api/debug`、`/api/video`、`/api/cover` 等明确路径，其余路径统一尝试解析
-- 若在旧项目上 `/api/entry` 仍报错，**新建一个 EdgeOne Pages 项目**即可（新项目的路径没有任何历史缓存污染）
-
-### 四、自定义域名（可选）
-
-EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → 自动签发 SSL。
-
-### EdgeOne vs Cloudflare 对比
-
-| 维度 | Cloudflare Pages | EdgeOne Pages |
-|------|-----------------|---------------|
-| 国内访问 | 慢（无大陆节点） | 快（广州/上海/北京） |
-| 带宽 | 无限免费 | 免费额度有限 |
-| 函数请求 | 10 万次/天 | 100 万次/月 |
-| 函数超时 | 免费 30s / 付费 90s+ | 默认 30s，可申请 120s |
-| KV 存储 | 免费 1GB | 免费额度少 |
-| 部署目录 | `functions/` | `node-functions/` |
-| 路由机制 | 文件即路由（`/api/parse` → `parse.js`） | `[[default]].js` 兜底 + `entry.js` 统一入口 |
-| 网络 | 全局 `fetch()` 可用 | 全局 `fetch()` 无法发外网，强制 Node.js 原生 `http`/`https` |
-| 响应大小限制 | 无（流式） | 单次响应 ~10-20MB，**必须用 ReadableStream 流式回传** |
-
-> 同一份核心代码（[`lib/core.js`](./lib/core.js)）同时支持两边部署，按你的主要用户群体选一个就行。
-
----
-
-### Pages Functions 路由机制（为什么不会静态资源 404）
-
-项目根下的 [`_routes.json`](./_routes.json) 配置为：
-
-```json
-{ "include": ["/api/*"], "exclude": [] }
-```
-
-这意味着**只有 `/api/*` 的请求才会进入 Functions 处理**，其余所有路径（首页 `/`、`/index.html`、CSS/JS 内联资源、favicon 等）都由 Pages 静态托管直接返回，不会触发函数，不会 404。
+2. 输入你的域名（如果 DNS 托管在 Cloudflare，会自动配 CNAME 和 SSL）
+3. 等待证书签发完毕即可用 `https://你的域名` 访问
 
 ---
 
@@ -165,67 +61,42 @@ EdgeOne 控制台 → 域名管理 → 添加自定义域名 → 配 CNAME → �
 
 ```
 .
-├── server.js                  # 本地运行：Express 主程序（Node.js 原生流代理）
 ├── lib/
-│   └── core.js                # 通用核心逻辑：网络层 + 解析 + KV/内存双模式缓存（三运行时共享）
-├── functions/                 # Cloudflare Pages Functions（文件即路由，仅 /api/* 命中）
+│   └── core.js                # 核心解析逻辑：URL 解析 + ttwid + 签名 + 抖音 API + 缓存
+├── functions/                 # Cloudflare Pages Functions（按文件映射路由）
 │   └── api/
-│       ├── parse.js           # POST/GET /api/parse
-│       ├── douyin.js          # GET /api/douyin
-│       ├── cover.js           # GET /api/cover  封面/图片代理（fetch body 流式透传）
-│       ├── video.js           # GET /api/video  视频代理（fetch body 流式，支持 Range）
-│       └── douyin/
-│           └── self.js        # GET /api/douyin/self  兼容旧接口
-├── node-functions/            # EdgeOne Pages Node Functions
-│   └── api/
-│       ├── entry.js           # /api/entry?action=parse|video|cover  统一入口（前端默认走这条）
-│       └── [[default]].js     # /api/health、/api/debug、/api/video、/api/cover + 其余路径兜底解析
-├── public/                    # 前端静态资源（Pages 直接托管，不走函数）
-│   ├── index.html
+│       └── entry.js           # 统一入口：/__dy__/entry?action=parse|video|cover|health
+├── public/                    # 静态资源（Pages 直接托管，不走函数）
+│   ├── index.html             # 前端页面
 │   └── favicon.ico
-├── _routes.json               # Cloudflare Pages Functions 路由规则：只接管 /api/*
-├── edgeone.json               # EdgeOne Pages 配置（输出目录 + Node Functions maxDuration）
-├── package.json               # 依赖 + 脚本（本地启动 / wrangler 本地调试）
+├── package.json               # 脚本 + 依赖（仅 wrangler 作为 devDependency）
 ├── LICENSE                    # MIT
 └── README.md
 ```
+
+**路由匹配（Cloudflare Pages Functions）：**
+
+| 文件 | 匹配路径 |
+|------|---------|
+| `functions/api/entry.js` | `/api/entry` |
+
+前端实际走 `/api/entry?action=parse`，由 `entry.js` 根据 `action` 参数分发到 parse/video/cover/health 四个逻辑。所有非 `/api/*` 的路径（`/`、`index.html`、favicon 等）直接走静态托管，不触发函数。
 
 ---
 
 ## 🔧 API 接口
 
-> **EdgeOne 用户注意**：前端在 EdgeOne 部署时统一走 `/api/entry?action=...`（见下文"统一入口"小节）。Cloudflare Pages 和本地模式则直接走下面的具体路径。
+前端统一使用 `/api/entry?action=` 入口。`action` 缺省时默认为 `parse`。
 
-### 解析接口（前端主入口）
-
-自动识别是视频还是图文，前端页面实际调用的接口。
+### 解析
 
 ```
-POST /api/parse
+GET  /api/entry?action=parse&url=<URL编码的分享链接>
+POST /api/entry?action=parse
 Content-Type: application/json
 
 { "url": "<分享链接>" }
 ```
-
-也支持 query 方式：`POST /api/parse?url=<链接>`、`GET /api/parse?url=<链接>`。
-
-### 解析接口（统一入口）
-
-```
-GET /api/douyin?url=<分享链接>
-GET /api/douyin/self?url=<分享链接>
-```
-
-### EdgeOne 统一入口（避开平台路由缓存污染）
-
-```
-GET /api/entry?action=parse&url=<分享链接>      # 解析
-GET /api/entry?action=video&url=<URL编码的直链>  # 视频代理（支持 Range、download=1）
-GET /api/entry?action=cover&url=<图片URL>        # 封面代理（支持 download=1）
-GET /api/entry?action=health                     # 健康检查
-```
-
-`action` 缺省时默认为 `parse`。前端 [`public/index.html`](./public/index.html) 会根据部署平台自动选择走 `/api/entry` 还是 `/api/parse` 等具体路径。
 
 **视频响应示例：**
 
@@ -236,8 +107,8 @@ GET /api/entry?action=health                     # 健康检查
   "video_key": "v1",
   "title": "视频标题",
   "author": "作者名称",
-  "play_url": "https://...",
-  "cover": "https://...",
+  "play_url": "https://...无水印直链...",
+  "cover": "https://...封面...",
   "item_id": "7624888803265880255",
   "platform": "douyin",
   "source": "self"
@@ -254,10 +125,10 @@ GET /api/entry?action=health                     # 健康检查
   "author": "作者名称",
   "image_count": 9,
   "images": [
-    { "url": "https://...", "width": 1440, "height": 1440, "uri": "..." }
+    { "url": "https://...图片直链...", "width": 1440, "height": 1440, "uri": "..." }
   ],
-  "item_id": "7597706291793311333",
   "cover": "https://...",
+  "item_id": "7597706291793311333",
   "platform": "douyin",
   "source": "self"
 }
@@ -266,89 +137,93 @@ GET /api/entry?action=health                     # 健康检查
 ### 视频代理
 
 ```
-GET /api/video?url=<URL编码的抖音直链>          # 推荐，不依赖 KV
-GET /api/video?url=<...>&download=1              # 触发下载
-GET /api/video?id=<video_key>                    # 旧模式，需绑定 KV
+GET /api/entry?action=video&url=<URL编码的抖音直链>
+GET /api/entry?action=video&url=<...>&download=1      # 触发浏览器下载
+GET /api/entry?action=video&id=<video_key>            # 旧模式（需绑定 KV）
 ```
 
-- **两种传参方式都支持**：
-  - `id`：旧的 KV 查表模式（需要绑定 KV，未来兼容保留）
-  - `url`：**推荐**，直接传抖音直链，不依赖 KV，URL 编码后约 600~700 字节
-- `download`：可选，加此参数返回 `Content-Disposition: attachment` 触发浏览器下载
-- 支持 HTTP Range 断点续传（拖动进度条、下载续传都能用）
+- `download=1`：返回 `Content-Disposition: attachment`，浏览器弹出保存
+- **支持 HTTP Range**：拖动进度条、下载工具续传均可正常使用
 
-### 图片/封面代理
+### 封面 / 图片代理
 
 ```
-GET /api/cover?url=<图片URL>
-GET /api/cover?url=<图片URL>&download=1
+GET /api/entry?action=cover&url=<图片URL>
+GET /api/entry?action=cover&url=<图片URL>&download=1
 ```
 
-- `url`：原始图片/封面 URL（需要 URL 编码）
-- 前端预览实际走 `<img referrerpolicy="no-referrer">` 直连，**零带宽占用**；此代理作为直连失败的兜底
+> 前端预览时图片走 `<img referrerpolicy="no-referrer">` 直连，**不占任何带宽**；仅当直连被跨域拦截时才回退到此代理。
+
+### 健康检查
+
+```
+GET /api/entry?action=health
+```
+
+返回 `{ "status": "ok", "ts": 1700000000000 }`，用于监控或快速验证 Functions 是否正常。
 
 ---
 
-## 🛠️ 技术栈
+## 🧠 解析原理（三级降级策略）
 
-| 层 | 技术选型 |
-|----|---------|
-| 本地 HTTP 服务 | Node.js + Express（运行时唯一第三方依赖） |
-| Cloudflare 函数 | Pages Functions（Workers V8 运行时） |
-| 核心网络请求 | Web Standard `fetch()`（Cloudflare Workers / Node.js 18+）+ Node.js 原生 `http`/`https` 模块（EdgeOne 强制启用） |
-| 缓存（可选） | Cloudflare KV / EdgeOne KV（跨实例共享 30 分钟过期）/ 内存 Map（本地降级）；**未绑定也能跑**，前端直传 `url` 参数 |
-| 媒体代理（本地） | Node.js 原生 `http`/`https` 模块流式 `pipe()` |
-| 媒体代理（Cloudflare Pages） | `fetch()` 返回 ReadableStream，`new Response(body, …)` 直接透传 |
-| 媒体代理（EdgeOne Pages） | Node.js 原生 `http`/`https` + Web `ReadableStream` 流式回传（规避 413 响应大小限制） |
-| 前端 | 原生 HTML / CSS / JavaScript，无框架 |
-| **明确不使用** | Puppeteer / Playwright / 任何无头浏览器 / 任何第三方解析 API |
+1. **提取 itemId** — 处理短链重定向，正则匹配 17~19 位数字内容 ID；若 URL 中直接有 ID 则跳过跳转
+2. **获取 ttwid + Cookie** — 调用 `ttwid.bytedance.com/union/register/` 注册会话，得到合法 ttwid Cookie
+3. **策略 A：Share 页 SSR 数据提取** — 模拟 iPhone Safari UA 访问公开分享页，从 `window._ROUTER_DATA` 中深度优先搜索媒体节点
+4. **策略 B：官方 aweme API 提取** — 带 ttwid Cookie + 生成的 `a_bogus` 签名调用 `/aweme/v1/web/aweme/detail/`，从 `aweme_detail` 取媒体
+5. **URL 清洗** — `playwm` → `play` 去水印，Unicode 转义还原
 
 ---
 
-## 🧠 实现原理
+## 带宽优化：预览直连 + 下载按需代理
 
-### 解析流程（三级降级策略）
-
-1. **提取 itemId** - 从短链跟随重定向，正则匹配 17~19 位数字内容 ID；若 URL 中直接含 ID 则跳过重定向
-2. **请求分享页** - 模拟 iPhone Safari UA 访问公开分享页面，绕过 WAF JS 挑战，拿到 ~38KB 的 SSR 页面及 `ttwid` Cookie
-3. **策略 A：嵌入式数据提取** - 用括号配平算法从 HTML 中切出 `window._ROUTER_DATA`，递归深度优先搜索含 `video.play_addr` 或 `images` 的节点
-4. **策略 B：官方 API 兜底** - 若策略 A 未取到媒体，带 Cookie 调用两个端点 × 两组参数组合，从 `aweme_detail` 中提取媒体
-5. **URL 修复** - 将 `playwm` 替换为 `play` 拿无水印视频，解码 `\u002F` 等转义字符
-6. **缓存视频 URL**（可选优化）- 视频类型用短 ID（`v1` / `v2` …）缓存真实播放地址（30 分钟过期）。Cloudflare Pages 模式下存 KV 多实例共享，本地模式存内存 Map。**未绑 KV 时降级到内存 Map 也能跑**，前端通过 `/api/video?url=` 直传不依赖此缓存
-
-### 带宽优化：预览直连 + 下载按需代理
-
-| 场景 | 流量走向 | 服务器带宽占用 |
-|------|---------|--------------|
+| 场景 | 实现方式 | 服务器带宽 |
+|------|---------|-----------|
 | 图片预览 | `<img referrerpolicy="no-referrer">` 直连 CDN | **0** |
-| 封面预览 | 同上 | **0** |
 | 图片下载 | `<a href="直链" download rel="noreferrer">` 跨域下载 | **0** |
-| 封面下载 | 同上 | **0** |
-| 视频预览 | 服务器代理（视频 CDN 强制校验 Referer，浏览器无法直连） | 占用 |
-| 视频下载·主按钮 | 服务器代理（兼容性最佳） | 占用 |
-| 视频下载·直链另存 | 新标签打开直链 → 用户右键"视频另存为" | **0** |
+| 封面预览 / 下载 | 同上 | **0** |
+| 视频预览 | Functions 代理注入合规 Referer 取流 | 占用 |
+| 视频下载主按钮 | Functions 代理（兼容性最佳） | 占用 |
+| 视频直链另存 | 新标签打开直链 + 用户右键另存 | **0** |
 
-> 盗链机制：图片 CDN 接受空 Referer 直接放行，视频 CDN 强制校验合规 Referer，空 Referer 返回 403 被 Chrome ORB 拦截。
-> 代理侧统一注入 `Referer: https://www.douyin.com/` + iPhone Safari UA 取流。
-
-### 视频代理特性
-
-- **流式透传**：`fetch → Response.body → new Response(...)`（Pages）或 `http.request → pipe(res)`（本地），不在服务器内存中缓存媒体，大视频也 O(1) 内存
-- **Range 断点续传**：原样透传 `Range` 请求头与 `Content-Range` 响应头，拖动进度条 / 下载软件续传均可
-- **跨域可用**：代理返回加 `Access-Control-Allow-Origin: *`，前端在预览直连失败时回退到代理也能正常拿到 Blob
+视频 CDN 强制校验 `Referer`，浏览器空 Referer 直连会 403 被 Chrome ORB 拦截，因此视频必须经过代理；图片 CDN 接受空 Referer 可直接放行。
 
 ---
 
-## 🧪 本地调试 Pages Functions（可选）
-
-项目提供 `wrangler` 一键本地调试 Pages 函数：
+## 🛠️ 本地调试（可选）
 
 ```bash
-# （首次需要安装 wrangler 到全局或到项目 devDeps，已写在 npm scripts）
+# 克隆仓库
+git clone https://github.com/Hartcher1996/DyExtract.git
+cd DyExtract
+
+# 安装依赖（只有 wrangler，作为 devDependency）
+npm install
+
+# 本地模拟 Cloudflare Pages Functions（端口 8788）
 npm run pages:dev
 ```
 
-会在 **http://localhost:8788** 启一个模拟 Pages 的服务，等同线上 Pages Functions + 静态托管行为。调试完毕后推 Git 即自动部署。
+首次运行会弹出浏览器要求授权 Cloudflare 账号（登录一次即可）。访问 `http://localhost:8788` 等同线上 Pages 行为，改完代码推 Git 自动部署。
+
+---
+
+## ❓ 常见问题
+
+### Q: 解析失败 / 返回 "解析服务暂不可用" 怎么办？
+
+1. 先访问 `/api/entry?action=health`，如果返回 JSON 说明 Functions 正常；如果返回 HTML 545 或 404，检查 Pages 项目是否部署成功
+2. 打开浏览器 DevTools → Network，看 `/api/entry?action=parse` 的响应内容是什么
+3. 抖音接口可能偶发限流，多试一次通常能成功
+
+### Q: 视频无法直链下载 / 预览只有封面图？
+
+视频直链必须经过代理（抖音 CDN 校验 Referer），检查：
+- Functions 是否成功部署（`/api/entry?action=health`）
+- 视频代理走 `/api/entry?action=video&url=` 而不是直链
+
+### Q: 绑定自定义域名后视频仍无法播放？
+
+确认自定义域名的 DNS 已切到 Cloudflare（黄色云朵开启），且 Pages 项目里证书状态为 **Active**。
 
 ---
 
