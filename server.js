@@ -19,8 +19,29 @@ const PORT = process.env.PORT || 3001;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+// CORS（本地 + EdgeOne 通用，放在所有路由之前）
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, If-None-Match, If-Modified-Since');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    next();
+});
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 健康检查
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        runtime: 'nodejs',
+        ts: Date.now(),
+        hasFetch: typeof fetch === 'function',
+        nodeVersion: process.version
+    });
 });
 
 // ========== 解析路由 ==========
@@ -163,6 +184,24 @@ app.get('/api/video', async (req, res) => {
         req2.end();
     }
     proxyVideo(videoUrl, 0);
+});
+
+// ========== 全局错误处理 + 404 兜底（必须在所有路由之后）==========
+
+// 404：未匹配到任何路由
+app.use((req, res) => {
+    if (!res.headersSent) {
+        res.status(404).json({ error: 'API 路由不存在: ' + req.method + ' ' + req.url });
+    }
+});
+
+// 错误处理（4 参数中间件，Express 自动识别）
+app.use((err, req, res, next) => {
+    console.error('[未捕获异常]', err && err.message, err && err.stack);
+    if (res.headersSent) return next(err);
+    const code = err && err.status ? err.status : 500;
+    const msg = err && err.message ? err.message : '服务器内部错误';
+    res.status(code).json({ error: msg });
 });
 
 if (require.main === module) {
