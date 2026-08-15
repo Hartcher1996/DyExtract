@@ -82,6 +82,95 @@ async function handleHealth(request) {
     });
 }
 
+// /api/debug — 逐步测试 performParse 各阶段
+async function handleDebug(request) {
+    const { query } = parseRequest(request);
+    const rawUrl = query.get('url') || 'https://v.douyin.com/pbgLvxVWHoo/';
+    const results = { steps: [], ts: Date.now() };
+
+    if (!_core) return jsonResponse({ error: 'core not loaded' });
+
+    // Step 1: 提取 URL + itemId
+    const cleanUrl = _core.extractDouyinUrl(rawUrl);
+    results.steps.push({ step: '1-extract-url', cleanUrl });
+
+    let itemId = _core.extractItemId(cleanUrl);
+    results.steps.push({ step: '1b-itemId-from-url', itemId: itemId || '(none)' });
+
+    // Step 2: 如果没有 itemId，fetch 短链接
+    if (!itemId) {
+        try {
+            const t0 = Date.now();
+            const r = await _core.nativeRequest(cleanUrl, { timeoutMs: 10000 });
+            itemId = _core.extractItemId(r.body || '');
+            results.steps.push({
+                step: '2-fetch-short-url',
+                status: r.status,
+                timeMs: Date.now() - t0,
+                itemId: itemId || '(none)',
+                bodyLen: (r.body || '').length
+            });
+        } catch (e) {
+            results.steps.push({ step: '2-fetch-short-url', error: e.message });
+        }
+    }
+
+    if (!itemId) {
+        results.steps.push({ step: 'error', message: '无法提取 itemId' });
+        return jsonResponse(results);
+    }
+
+    // Step 3: fetch iesdouyin share page
+    const shareUrl = `https://www.iesdouyin.com/share/video/${itemId}`;
+    results.steps.push({ step: '3-share-url', url: shareUrl });
+    try {
+        const t0 = Date.now();
+        const r = await _core.nativeRequest(shareUrl, { timeoutMs: 10000 });
+        const cookie = _core.getCookiesFromHeaders(r.headers);
+        const meta = _core.parseMetaInfo(r.body);
+        const embedded = _core.parseFromEmbeddedData(r.body);
+        results.steps.push({
+            step: '3-share-url',
+            status: r.status,
+            timeMs: Date.now() - t0,
+            bodyLen: (r.body || '').length,
+            hasCookie: !!cookie,
+            cookieLen: cookie.length,
+            metaTitle: meta.title ? meta.title.substring(0, 50) : '',
+            metaImage: meta.image ? 'yes' : 'no',
+            metaVideoUrl: meta.videoUrl ? 'yes' : 'no',
+            embeddedPlayUrl: embedded.playUrl ? 'yes' : 'no',
+            embeddedImages: embedded.images ? embedded.images.length : 0,
+            embeddedTitle: embedded.title ? embedded.title.substring(0, 50) : ''
+        });
+    } catch (e) {
+        results.steps.push({ step: '3-share-url', error: e.message });
+    }
+
+    // Step 4: 完整 buildParseResponse 测试
+    results.steps.push({ step: '4-build-parse-response', url: rawUrl });
+    try {
+        const t0 = Date.now();
+        const result = await _core.buildParseResponse(rawUrl);
+        results.steps.push({
+            step: '4-build-parse-response',
+            success: true,
+            timeMs: Date.now() - t0,
+            isVideo: result.__isVideo,
+            payloadKeys: result.payload ? Object.keys(result.payload) : []
+        });
+    } catch (e) {
+        results.steps.push({
+            step: '4-build-parse-response',
+            success: false,
+            error: e.message,
+            timeMs: Date.now() - 0
+        });
+    }
+
+    return jsonResponse(results);
+}
+
 // /api/test — 诊断端点：测试 Node.js 原生 http 模块的网络连通性
 async function handleTest(request) {
     const { query } = parseRequest(request);
@@ -384,6 +473,7 @@ export async function onRequest(context) {
         // 路由分发（onRequest 模式下 EdgeOne 不剥离前缀，传入的是完整路径 /api/xxx）
         if (path === '/api/health') return await handleHealth(request);
         if (path === '/api/test') return await handleTest(request);
+        if (path === '/api/debug') return await handleDebug(request);
         if (path === '/api/parse' || path === '/api/douyin' || path === '/api/douyin/self') {
             return await handleParse(request);
         }
