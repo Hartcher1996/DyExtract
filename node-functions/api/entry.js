@@ -70,7 +70,9 @@ function proxyMedia(targetUrl, kind, request, downloadFlag) {
                     let loc = pres.headers.location;
                     if (loc.startsWith('/')) loc = u.protocol + '//' + u.hostname + loc;
                     pres.resume();
-                    return resolve(doProxy(loc, depth + 1));
+                    // 递归调用，不再套 resolve（doProxy 内部会 resolve）
+                    doProxy(loc, depth + 1);
+                    return;
                 }
                 if (pres.statusCode >= 400) {
                     pres.resume();
@@ -105,7 +107,7 @@ function proxyMedia(targetUrl, kind, request, downloadFlag) {
             });
             req.end();
         }
-        doProxy(targetUrl, 0).then(resolve).catch(reject);
+        doProxy(targetUrl, 0);
     });
 }
 
