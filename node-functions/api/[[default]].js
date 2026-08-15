@@ -587,9 +587,23 @@ export async function onRequest(context) {
         if (path === '/api/health') return await handleHealth(request);
         if (path === '/api/test') return await handleTest(request);
         if (path === '/api/debug') return await handleDebug(request);
+
+        // /api/entry 统一入口：基于 action 参数路由（前端统一用 /api/entry?action=xxx）
+        if (path === '/api/entry' || path === '/api/entry/') {
+            const action = url.searchParams.get('action') || 'parse';
+            switch (action) {
+                case 'parse': return await handleParse(request);
+                case 'video': return await handleVideo(request);
+                case 'cover': return await handleCover(request);
+                case 'health': return await handleHealth(request);
+                default: return jsonResponse({ error: '未知 action: ' + action }, 400);
+            }
+        }
+
+        // 兼容旧路由（直接 /api/video, /api/cover, /api/parse 等）
         if (path === '/api/video') return await handleVideo(request);
         if (path === '/api/cover') return await handleCover(request);
-        // 兜底：其余路径（/api/parse, /api/douyin, /api/douyin/self, /api/entry 等）只要带 url 参数就尝试解析
+        // 兜底：其余路径（/api/parse, /api/douyin 等）只要带 url 参数就尝试解析
         return await handleParse(request);
     } catch (e) {
         console.error('[EdgeOne] ERROR:', e && e.message);
