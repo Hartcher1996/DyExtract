@@ -1,6 +1,0 @@
-{
-  "outputDirectory": "./public",
-  "nodeFunctionsConfig": {
-    "maxDuration": 60
-  }
-}

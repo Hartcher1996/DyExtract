@@ -1,17 +1,7 @@
 // functions/api/entry.js — Cloudflare Pages Function: /api/entry
 // 统一入口，通过 ?action=parse|video|cover 参数路由。
-// 前端统一只请求 /api/entry，避免平台差异导致路径不命中。
-//
-// EdgeOne 兼容：EdgeOne 同时处理 functions/（Edge Function, V8 isolate）
-// 和 node-functions/（Node Function, Node.js v20）。functions/api/entry.js
-// 精确匹配 /api/entry，优先级高于 node-functions/api/[[default]].js 的 catch-all。
-// 但 Edge Function 的 fetch() 无法访问外网 → 545。
-// 解决：检测到 Edge Function 环境时，代理到 node-functions 专属路径 /api/nparse。
 
 import core from '../../lib/core.js';
-
-// Edge Function (V8 isolate) 没有 process 全局；Node.js 和 CF Workers 都有
-const _isEdgeFunction = typeof process === 'undefined' && typeof globalThis.EdgeRuntime !== 'undefined';
 
 const { buildParseResponse, getCachedVideo, setKVStore, MOBILE_UA } = core;
 
@@ -174,18 +164,6 @@ async function handleCover(request) {
 async function handleRequest(context) {
     const { request, env } = context;
     const method = request.method;
-
-    // EdgeOne Edge Function 环境：代理到 node-functions 专属路径 /api/nparse
-    // Edge Function (V8 isolate) 的 fetch() 无法访问外网，解析/视频代理都会 545
-    if (_isEdgeFunction) {
-        const u = new URL(request.url);
-        const proxyUrl = u.origin + '/api/nparse' + u.search;
-        const init = { method, headers: request.headers };
-        if (method !== 'GET' && method !== 'HEAD') {
-            init.body = request.body;
-        }
-        return fetch(proxyUrl, init);
-    }
 
     // CORS preflight
     if (method === 'OPTIONS') {
