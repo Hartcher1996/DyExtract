@@ -1,6 +1,9 @@
 {
   "version": 1,
-  "static": {
-    "output": "public"
+  "outputDirectory": "./public",
+  "cloudFunctions": {
+    "nodejs": {
+      "maxDuration": 30
+    }
   }
 }
