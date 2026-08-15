@@ -16,10 +16,11 @@ const { app, setKVStore } = require('../../server.js');
 // —— KV 绑定（可选）——————————————————————————————————————————
 // 前端走 /api/video?url= 直传，不依赖 KV。
 // 若控制台绑定了 VIDEO_CACHE 命名空间，这里尝试注入；失败也不影响解析。
+// 注意：不能用 top-level await，Node14 target 不支持
 try {
-    const mod = await import('@edgeone/cloudfunctions-sdk').catch(() => null);
-    if (mod?.default?.KVNamespace?.getBinding) {
-        const ns = mod.default.KVNamespace.getBinding('VIDEO_CACHE');
+    const mod = require('@edgeone/cloudfunctions-sdk');
+    if (mod?.KVNamespace?.getBinding) {
+        const ns = mod.KVNamespace.getBinding('VIDEO_CACHE');
         if (ns && typeof ns.put === 'function' && typeof ns.get === 'function') {
             setKVStore(ns);
             console.log('[EdgeOne] KV 绑定成功: VIDEO_CACHE');
