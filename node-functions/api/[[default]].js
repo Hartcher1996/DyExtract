@@ -93,9 +93,12 @@ async function handleParse(request) {
     }
     if (!rawUrl) return jsonResponse({ error: '缺少URL参数' }, 400);
 
+    console.log('[handleParse] URL:', rawUrl);
+
     try {
-        const { payload } = await buildParseResponse(rawUrl);
-        return jsonResponse(payload);
+        const result = await buildParseResponse(rawUrl);
+        console.log('[handleParse] 解析成功, payload keys:', Object.keys(result || {}));
+        return jsonResponse(result.payload || result);
     } catch (e) {
         console.error('[解析错误]', e && e.message, e && e.stack);
         return jsonResponse({ error: e.message || '解析失败' }, 500);
