@@ -1,7 +1,6 @@
 {
-  "version": 1,
   "outputDirectory": "./public",
-  "cloudFunctions": {
+  "nodeFunctionsConfig": {
     "maxDuration": 30
   }
 }
